@@ -1,0 +1,61 @@
+:root {
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+
+  // Overwritten natively on Android (MainActivity.onWebViewCreate) since its
+  // WebView does not populate env(safe-area-inset-*) like iOS/desktop do.
+  --safe-area-inset-top: env(safe-area-inset-top, 20px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.container {
+  margin: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: 0.75s;
+
+  &.vite:hover {
+    filter: drop-shadow(0 0 2em #747bff);
+  }
+
+  &.react:hover {
+    filter: drop-shadow(0 0 2em #61dafb);
+  }
+
+  &.tauri:hover {
+    filter: drop-shadow(0 0 2em #24c8db);
+  }
+}
+
+.row {
+  display: flex;
+  justify-content: center;
+}
+
+a {
+  font-weight: 500;
+  color: #646cff;
+  text-decoration: inherit;
+
+  &:hover {
+    color: #535bf2;
+  }
+}
+
+h1 {
+  text-align: center;
+}
