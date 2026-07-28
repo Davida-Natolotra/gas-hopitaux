@@ -1,5 +1,5 @@
 import {useParams} from "react-router-dom";
-import type {RapportFs} from "../../features/rapports/rapport-model.ts";
+import type {RapportFs} from "../../features/rapports/model/rapport-model.ts";
 
 export default function RapportEditPage() {
     const {id} = useParams<{ id: RapportFs["id"] }>();

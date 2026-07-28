@@ -1,0 +1,203 @@
+import {getDb} from "../../../services/db.ts";
+import type {DetailSDU, RapportFsLigne} from "../model/rapport-model.ts";
+
+export interface RapportViewRow {
+    ppnId: string;
+    produitName: string;
+    unit: string;
+    ligneId: string | null;
+    ligne: RapportFsLigne | null;
+}
+
+export interface ProgrammeSection {
+    programmeId: string;
+    programmeName: string;
+    rows: RapportViewRow[];
+}
+
+interface RapportViewQueryRow {
+    ppn_id: string;
+    produit_name: string;
+    produit_unit: string;
+    programme_id: string;
+    programme_name: string;
+    ligne_id: string | null;
+    qte_dispo_deb_mois: number | null;
+    qte_rec_mois: number | null;
+    qte_dist_patient: number | null;
+    qte_dist_ac: number | null;
+    qte_perime_avarie_mois: number | null;
+    qte_redepl_mois: number | null;
+    nb_jour_rupture: number | null;
+    stock_theorique: number | null;
+    sdu_fin_mois: number | null;
+    ecart: number | null;
+    cmm: number | null;
+    cmma: number | null;
+    msd: number | null;
+    situation: string | null;
+    observation: string | null;
+}
+
+function toLigne(row: RapportViewQueryRow): RapportFsLigne | null {
+    if (!row.ligne_id) return null;
+    return {
+        produit_programme_niveau_id: row.ppn_id,
+        qte_dispo_deb_mois: row.qte_dispo_deb_mois,
+        qte_rec_mois: row.qte_rec_mois,
+        qte_dist_patient: row.qte_dist_patient,
+        qte_dist_ac: row.qte_dist_ac,
+        qte_perime_avarie_mois: row.qte_perime_avarie_mois,
+        qte_redepl_mois: row.qte_redepl_mois,
+        nb_jour_rupture: row.nb_jour_rupture,
+        stock_theorique: row.stock_theorique,
+        sdu_fin_mois: row.sdu_fin_mois,
+        ecart: row.ecart,
+        cmm: row.cmm,
+        cmma: row.cmma,
+        msd: row.msd ?? 0,
+        situation: row.situation ?? "",
+        observation: row.observation ?? "",
+        detail_sdu: null,
+    };
+}
+
+// Loops over my_produitprogrammeniveau (the current FS's applicable produits,
+// refreshed on config import / organisation-unit save) and left-joins this
+// report's own rapportfs_ligne rows, so a produit with no entry yet still
+// shows up as an "Incomplet" row.
+export async function getProgrammeSections(rapportfsId: string): Promise<ProgrammeSection[]> {
+    const db = await getDb();
+    const rows = await db.select<RapportViewQueryRow[]>(
+        `SELECT mppn.id                        AS ppn_id,
+                p.name                         AS produit_name,
+                p.unit                         AS produit_unit,
+                pr.id                          AS programme_id,
+                pr.name                        AS programme_name,
+                l.id                           AS ligne_id,
+                l.qte_dispo_deb_mois,
+                l.qte_rec_mois,
+                l.qte_dist_patient,
+                l.qte_dist_ac,
+                l.qte_perime_avarie_mois,
+                l.qte_redepl_mois,
+                l.nb_jour_rupture,
+                l.stock_theorique,
+                l.sdu_fin_mois,
+                l.ecart,
+                l.cmm,
+                l.cmma,
+                l.msd,
+                l.situation,
+                l.observation
+         FROM my_produitprogrammeniveau mppn
+                  JOIN produit p ON p.id = mppn.produit_id
+                  JOIN programme pr ON pr.id = mppn.programme_id
+                  LEFT JOIN rapportfs_ligne l
+                            ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = $1
+         ORDER BY pr.name, (mppn."order" IS NULL), mppn."order", p.name`,
+        [rapportfsId],
+    );
+
+    const sections = new Map<string, ProgrammeSection>();
+    for (const row of rows) {
+        let section = sections.get(row.programme_id);
+        if (!section) {
+            section = {programmeId: row.programme_id, programmeName: row.programme_name, rows: []};
+            sections.set(row.programme_id, section);
+        }
+        section.rows.push({
+            ppnId: row.ppn_id,
+            produitName: row.produit_name,
+            unit: row.produit_unit,
+            ligneId: row.ligne_id,
+            ligne: toLigne(row),
+        });
+    }
+    return Array.from(sections.values());
+}
+
+export async function getDetailSdu(rapportfsLigneId: string): Promise<DetailSDU[]> {
+    const db = await getDb();
+    return db.select<DetailSDU[]>(
+        `SELECT id, sdu, date_peremption
+         FROM detail_sdu
+         WHERE rapportfs_ligne_id = $1
+         ORDER BY date_peremption`,
+        [rapportfsLigneId],
+    );
+}
+
+// Creates the rapportfs_ligne row for this produit_programme_niveau if it
+// doesn't exist yet (row.ligne was null), otherwise updates it in place.
+// Returns the row's id (the existing one when updating), so the caller can
+// attach detail_sdu entries to it even for a brand-new ligne.
+export async function saveRapportFsLigne(
+    rapportfsId: string,
+    produitProgrammeNiveauId: string,
+    ligne: RapportFsLigne,
+): Promise<string> {
+    const db = await getDb();
+    const rows = await db.select<{ id: string }[]>(
+        `INSERT INTO rapportfs_ligne (id, rapportfs_id, produit_programme_niveau_id, qte_dispo_deb_mois,
+                                       qte_rec_mois, qte_dist_patient, qte_dist_ac, qte_perime_avarie_mois,
+                                       qte_redepl_mois, nb_jour_rupture, stock_theorique, sdu_fin_mois, ecart,
+                                       cmm, cmma, msd, situation, observation)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         ON CONFLICT(rapportfs_id, produit_programme_niveau_id) DO UPDATE SET
+             qte_dispo_deb_mois     = excluded.qte_dispo_deb_mois,
+             qte_rec_mois           = excluded.qte_rec_mois,
+             qte_dist_patient       = excluded.qte_dist_patient,
+             qte_dist_ac            = excluded.qte_dist_ac,
+             qte_perime_avarie_mois = excluded.qte_perime_avarie_mois,
+             qte_redepl_mois        = excluded.qte_redepl_mois,
+             nb_jour_rupture        = excluded.nb_jour_rupture,
+             stock_theorique        = excluded.stock_theorique,
+             sdu_fin_mois           = excluded.sdu_fin_mois,
+             ecart                  = excluded.ecart,
+             cmm                    = excluded.cmm,
+             cmma                   = excluded.cmma,
+             msd                    = excluded.msd,
+             situation              = excluded.situation,
+             observation            = excluded.observation
+         RETURNING id`,
+        [
+            crypto.randomUUID(),
+            rapportfsId,
+            produitProgrammeNiveauId,
+            ligne.qte_dispo_deb_mois,
+            ligne.qte_rec_mois,
+            ligne.qte_dist_patient,
+            ligne.qte_dist_ac,
+            ligne.qte_perime_avarie_mois,
+            ligne.qte_redepl_mois,
+            ligne.nb_jour_rupture,
+            ligne.stock_theorique,
+            ligne.sdu_fin_mois,
+            ligne.ecart,
+            ligne.cmm,
+            ligne.cmma,
+            ligne.msd,
+            ligne.situation,
+            ligne.observation,
+        ],
+    );
+    return rows[0].id;
+}
+
+export interface DetailSduInput {
+    sdu: number;
+    date_peremption: string | null;
+}
+
+// Replaces the full list of detail_sdu rows attached to a rapportfs_ligne.
+export async function saveDetailSdu(rapportfsLigneId: string, entries: DetailSduInput[]): Promise<void> {
+    const db = await getDb();
+    await db.execute("DELETE FROM detail_sdu WHERE rapportfs_ligne_id = $1", [rapportfsLigneId]);
+    for (const entry of entries) {
+        await db.execute(
+            "INSERT INTO detail_sdu (id, rapportfs_ligne_id, sdu, date_peremption) VALUES ($1, $2, $3, $4)",
+            [crypto.randomUUID(), rapportfsLigneId, entry.sdu, entry.date_peremption],
+        );
+    }
+}

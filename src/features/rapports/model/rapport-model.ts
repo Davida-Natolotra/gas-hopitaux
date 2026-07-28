@@ -11,6 +11,7 @@ export interface RapportFsLigne {
     sdu_fin_mois: number | null;
     ecart: number | null;
     cmm: number | null;
+    cmma: number | null;
     msd: number;
     situation: string;
     observation: string;

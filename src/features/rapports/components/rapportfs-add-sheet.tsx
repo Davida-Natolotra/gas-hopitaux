@@ -9,8 +9,8 @@ import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
-import type {MyOrganisationUnit} from "../organisation-units/organisation-unit-model.ts";
-import {getMyOrganisationUnit} from "../organisation-units/organisation-units-service.ts";
+import type {MyOrganisationUnit} from "../../organisation-units/organisation-unit-model.ts";
+import {getMyOrganisationUnit} from "../../organisation-units/organisation-units-service.ts";
 import {createRapportFs} from "./rapportfs-service.ts";
 
 interface RapportfsAddSheetProps {

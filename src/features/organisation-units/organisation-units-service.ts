@@ -76,4 +76,24 @@ export async function saveMyOrganisationUnit(input: {
                                         fs_id      = excluded.fs_id`,
         [input.drspId, input.sdspId, input.communeId, input.fsId],
     );
+    await refreshMyProduitProgrammeNiveau();
+}
+
+/**
+ * Rebuilds my_produitprogrammeniveau: the subset of produit_programme_niveau
+ * whose org_group the saved FS belongs to (via organisation_unit_group_member).
+ * Must be re-run whenever the saved FS changes or produit_programme_niveau /
+ * organisation_unit_group_member are replaced by a config import.
+ */
+export async function refreshMyProduitProgrammeNiveau(): Promise<void> {
+    const db = await getDb();
+    await db.execute("DELETE FROM my_produitprogrammeniveau");
+    await db.execute(
+        `INSERT INTO my_produitprogrammeniveau (id, produit_id, programme_id, org_group_id, org_group_name, "order")
+         SELECT ppn.id, ppn.produit_id, ppn.programme_id, ppn.org_group_id, ppn.org_group_name, ppn."order"
+         FROM produit_programme_niveau ppn
+         WHERE ppn.org_group_id IN (SELECT group_id
+                                     FROM organisation_unit_group_member
+                                     WHERE ou_id = (SELECT fs_id FROM my_organisation_unit WHERE id = 1))`,
+    );
 }

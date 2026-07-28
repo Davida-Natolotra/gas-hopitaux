@@ -23,6 +23,18 @@ pub fn run() {
             sql: include_str!("../migrations/0002_create_reference_tables.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "create_rapportfs_ligne_and_my_ppn",
+            sql: include_str!("../migrations/0003_create_rapportfs_ligne_and_my_ppn.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 4,
+            description: "add_cmma",
+            sql: include_str!("../migrations/0004_add_cmma.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

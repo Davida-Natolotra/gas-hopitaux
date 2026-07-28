@@ -2,8 +2,8 @@ import {DataGrid, GridColDef, GridRowSelectionModel} from "@mui/x-data-grid";
 import Paper from "@mui/material/Paper";
 import Chip from "@mui/material/Chip";
 import Alert from "@mui/material/Alert";
-import type {RapportFs} from "./rapport-model.ts";
-import {formatDate, formatMoisAnnee} from "../../utils/date-format.ts";
+import type {RapportFs} from "../model/rapport-model.ts";
+import {formatDate, formatMoisAnnee} from "../../../utils/date-format.ts";
 
 interface RapportfsTableProps {
     rows: RapportFs[];
@@ -13,7 +13,13 @@ interface RapportfsTableProps {
     onSelectionModelChange: (model: GridRowSelectionModel) => void;
 }
 
-export default function RapportfsTable({rows, loading, error, selectionModel, onSelectionModelChange}: RapportfsTableProps) {
+export default function RapportfsTable({
+                                           rows,
+                                           loading,
+                                           error,
+                                           selectionModel,
+                                           onSelectionModelChange
+                                       }: RapportfsTableProps) {
     const columns: GridColDef[] = [
         {
             field: "mois_annee",

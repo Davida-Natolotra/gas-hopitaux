@@ -1,4 +1,4 @@
-import RapportTableList from "../../features/rapports/rapport-table-list.tsx";
+import RapportTableList from "../../features/rapports/components/rapport-table-list.tsx";
 
 export default function RapportfsListPage() {
     return (
