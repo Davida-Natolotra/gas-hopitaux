@@ -55,7 +55,7 @@ export default function ProduitsProgrammeTable() {
     const current = sections[tab] ?? sections[0];
 
     return (
-        <Box sx={{mt: 4}}>
+        <Box sx={{p: 1}}>
             <h3>Liste des produits à rapporter</h3>
             <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{mb: 2}}>
                 {sections.map((section) => (

@@ -7,12 +7,14 @@ import StepButton from "@mui/material/StepButton";
 import UserProfile from "../../features/userprofile/components/user-profile.tsx";
 import ConfigImportTab from "../../features/configuration/components/config-import-tab.tsx";
 import BackupTab from "../../features/configuration/components/backup-tab.tsx";
+import ProduitsProgrammeTable from "../../features/configuration/components/produits-programme-table.tsx";
 import OrganisationUnitCascade from "../../features/organisation-units/organisation-unit-cascade.tsx";
 
 const steps = [
     {label: "Profil utilisateur", content: <UserProfile/>},
     {label: "Configuration", content: <ConfigImportTab/>},
     {label: "Unité d'organisation", content: <OrganisationUnitCascade/>},
+    {label: "Produits", content: <ProduitsProgrammeTable/>},
     {label: "Sauvegarde", content: <BackupTab/>},
 ];
 
