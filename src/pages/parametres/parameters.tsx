@@ -1,52 +1,45 @@
-import type {ReactNode, SyntheticEvent} from "react";
+import type {ReactNode} from "react";
 import {useState} from "react";
 import Box from "@mui/material/Box";
-import Tabs from "@mui/material/Tabs";
-import Tab from "@mui/material/Tab";
-import ConfigImportTab from "../../features/configuration/config-import-tab.tsx";
-import BackupTab from "../../features/configuration/backup-tab.tsx";
+import Stepper from "@mui/material/Stepper";
+import Step from "@mui/material/Step";
+import StepButton from "@mui/material/StepButton";
+import UserProfile from "../../features/userprofile/components/user-profile.tsx";
+import ConfigImportTab from "../../features/configuration/components/config-import-tab.tsx";
+import BackupTab from "../../features/configuration/components/backup-tab.tsx";
 import OrganisationUnitCascade from "../../features/organisation-units/organisation-unit-cascade.tsx";
 
-function TabPanel({children, value, index}: { children: ReactNode; value: number; index: number }) {
-    if (value !== index) return null;
-    return (
-        <Box role="tabpanel" id={`parametres-tabpanel-${index}`} aria-labelledby={`parametres-tab-${index}`}>
-            {children}
-        </Box>
-    );
-}
+const steps = [
+    {label: "Profil utilisateur", content: <UserProfile/>},
+    {label: "Configuration", content: <ConfigImportTab/>},
+    {label: "Unité d'organisation", content: <OrganisationUnitCascade/>},
+    {label: "Sauvegarde", content: <BackupTab/>},
+];
 
-function tabProps(index: number) {
-    return {
-        id: `parametres-tab-${index}`,
-        "aria-controls": `parametres-tabpanel-${index}`,
-    };
+function StepPanel({children, active}: { children: ReactNode; active: boolean }) {
+    if (!active) return null;
+    return <Box role="tabpanel">{children}</Box>;
 }
 
 export default function ParametresPage() {
-    const [tab, setTab] = useState(0);
-
-    const handleChange = (_event: SyntheticEvent, value: number) => setTab(value);
+    const [step, setStep] = useState(0);
 
     return (
         <div>
-
-            <Box sx={{borderBottom: 1, borderColor: "divider"}}>
-                <Tabs value={tab} onChange={handleChange}>
-                    <Tab label="Configuration" {...tabProps(0)} />
-                    <Tab label="Unité d'organisation" {...tabProps(1)} />
-                    <Tab label="Sauvegarde" {...tabProps(2)} />
-                </Tabs>
+            <Box sx={{mb: 3}}>
+                <Stepper nonLinear activeStep={step}>
+                    {steps.map((s, index) => (
+                        <Step key={s.label}>
+                            <StepButton onClick={() => setStep(index)}>{s.label}</StepButton>
+                        </Step>
+                    ))}
+                </Stepper>
             </Box>
-            <TabPanel value={tab} index={0}>
-                <ConfigImportTab/>
-            </TabPanel>
-            <TabPanel value={tab} index={1}>
-                <OrganisationUnitCascade/>
-            </TabPanel>
-            <TabPanel value={tab} index={2}>
-                <BackupTab/>
-            </TabPanel>
+            {steps.map((s, index) => (
+                <StepPanel key={s.label} active={step === index}>
+                    {s.content}
+                </StepPanel>
+            ))}
         </div>
     );
 }

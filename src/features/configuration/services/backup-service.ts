@@ -1,6 +1,6 @@
 import {invoke} from "@tauri-apps/api/core";
 import {confirm, open, save} from "@tauri-apps/plugin-dialog";
-import {getDb} from "../../services/db.ts";
+import {getDb} from "../../../services/db.ts";
 
 const BACKUP_FILTERS = [{name: "Sauvegarde RFS", extensions: ["rfsbak"]}];
 

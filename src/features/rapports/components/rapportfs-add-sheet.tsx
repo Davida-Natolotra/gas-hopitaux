@@ -11,8 +11,8 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
 import type {MyOrganisationUnit} from "../../organisation-units/organisation-unit-model.ts";
 import {getMyOrganisationUnit} from "../../organisation-units/organisation-units-service.ts";
-import {createRapportFs, listRapportFs} from "./rapportfs-service.ts";
-import {computeRollingCmm} from "./rapport-cmm-service.ts";
+import {createRapportFs, listRapportFs} from "../services/rapportfs-service.ts";
+import {computeRollingCmm} from "../services/rapport-cmm-service.ts";
 
 interface RapportfsAddSheetProps {
     open: boolean;

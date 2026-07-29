@@ -11,9 +11,9 @@ import Fab from "@mui/material/Fab";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import type {RapportFs} from "../../features/rapports/model/rapport-model.ts";
-import {getRapportFsById} from "../../features/rapports/components/rapportfs-service.ts";
-import type {ProgrammeSection} from "../../features/rapports/components/rapport-view-service.ts";
-import {getProgrammeSections} from "../../features/rapports/components/rapport-view-service.ts";
+import {getRapportFsById} from "../../features/rapports/services/rapportfs-service.ts";
+import type {ProgrammeSection} from "../../features/rapports/services/rapport-view-service.ts";
+import {getProgrammeSections} from "../../features/rapports/services/rapport-view-service.ts";
 import RapportProgrammeTable from "../../features/rapports/components/rapport-programme-table.tsx";
 import {formatMoisAnnee} from "../../utils/date-format.ts";
 
@@ -61,7 +61,7 @@ export default function RapportViewPage() {
         <div>
             <Stack direction="row" sx={{justifyContent: "space-between", alignItems: "center",}}>
                 <Stack direction="row" sx={{alignItems: "center"}}>
-                    <IconButton onClick={() => navigate("/")} aria-label="Retour à la liste des rapports">
+                    <IconButton onClick={() => navigate("/rapports")} aria-label="Retour à la liste des rapports">
                         <ChevronLeftIcon/>
                     </IconButton>
                     <h3>
@@ -97,7 +97,8 @@ export default function RapportViewPage() {
                 >
                     <KeyboardArrowDownIcon/>
                 </Fab>
-                <Fab size="small" color="primary" aria-label="Retour à la liste des rapports" onClick={() => navigate("/")}>
+                <Fab size="small" color="primary" aria-label="Retour à la liste des rapports"
+                     onClick={() => navigate("/rapports")}>
                     <ChevronLeftIcon/>
                 </Fab>
             </Stack>

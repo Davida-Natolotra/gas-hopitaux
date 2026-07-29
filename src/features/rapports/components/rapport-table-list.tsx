@@ -3,13 +3,16 @@ import {useNavigate} from "react-router-dom";
 import type {GridRowSelectionModel} from "@mui/x-data-grid";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
+import CircularProgress from "@mui/material/CircularProgress";
+import Alert from "@mui/material/Alert";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DeleteIcon from "@mui/icons-material/Delete";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import TableList from "./table-list.tsx";
 import RapportfsAddSheet from "./rapportfs-add-sheet.tsx";
-import {deleteRapportFs, listRapportFs} from "./rapportfs-service.ts";
-import {computeRollingCmm} from "./rapport-cmm-service.ts";
+import {deleteRapportFs, listRapportFs, markRapportFsExported} from "../services/rapportfs-service.ts";
+import {computeRollingCmm} from "../services/rapport-cmm-service.ts";
+import {exportRapportFsToUtglfs} from "../services/rapportfs-export-service.ts";
 import type {RapportFs} from "../model/rapport-model.ts";
 
 const emptySelection: GridRowSelectionModel = {type: "include", ids: new Set()};
@@ -21,6 +24,8 @@ function RapportTableList() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectionModel, setSelectionModel] = useState<GridRowSelectionModel>(emptySelection);
+    const [exporting, setExporting] = useState(false);
+    const [exportMessage, setExportMessage] = useState<{ severity: "success" | "error"; text: string } | null>(null);
 
     const loadRows = useCallback(async () => {
         setLoading(true);
@@ -59,6 +64,24 @@ function RapportTableList() {
         await loadRows();
     };
 
+    const handleExport = async () => {
+        if (!selectedRow) return;
+        setExporting(true);
+        setExportMessage(null);
+        try {
+            const dest = await exportRapportFsToUtglfs(selectedRow.id, selectedRow.name);
+            if (dest) {
+                await markRapportFsExported(selectedRow.id);
+                await loadRows();
+                setExportMessage({severity: "success", text: `Rapport exporté : ${dest}`});
+            }
+        } catch (err) {
+            setExportMessage({severity: "error", text: err instanceof Error ? err.message : String(err)});
+        } finally {
+            setExporting(false);
+        }
+    };
+
     return (
         <div>
             <h3>Liste des rapports</h3>
@@ -67,17 +90,30 @@ function RapportTableList() {
                 <Button variant="contained" onClick={() => setAddOpen(true)}>+ Nouveau rapport</Button>
 
                 <Stack direction="row" spacing={1}>
-                    <Button variant="outlined" startIcon={<VisibilityIcon/>} disabled={!selectedRow} onClick={handleView}>
+                    <Button variant="outlined" startIcon={<VisibilityIcon/>} disabled={!selectedRow}
+                            onClick={handleView}>
                         Détails
                     </Button>
-                    <Button variant="outlined" startIcon={<FileDownloadIcon/>} disabled={!selectedRow?.status}>
+                    <Button
+                        variant="outlined"
+                        startIcon={exporting ? <CircularProgress size={16}/> : <FileDownloadIcon/>}
+                        disabled={!selectedRow?.status || exporting}
+                        onClick={handleExport}
+                    >
                         Exporter
                     </Button>
-                    <Button variant="outlined" color="error" startIcon={<DeleteIcon/>} disabled={!selectedRow} onClick={handleDelete}>
+                    <Button variant="outlined" color="error" startIcon={<DeleteIcon/>} disabled={!selectedRow}
+                            onClick={handleDelete}>
                         Supprimer
                     </Button>
                 </Stack>
             </Stack>
+
+            {exportMessage && (
+                <Alert severity={exportMessage.severity} sx={{mb: 2}} onClose={() => setExportMessage(null)}>
+                    {exportMessage.text}
+                </Alert>
+            )}
 
             <TableList
                 rows={rows}

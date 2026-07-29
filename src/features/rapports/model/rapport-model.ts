@@ -1,3 +1,5 @@
+import type {userFS} from "../../userprofile/models/user-interface.ts"
+
 export interface RapportFsLigne {
     produit_programme_niveau_id: string;
     qte_dispo_deb_mois: number | null;
@@ -32,7 +34,9 @@ export interface RapportFs {
     created: string;
     status: boolean;
     exported_date: string | null;// null for rapport-attached, set for standalone
-    edited_by: string | null;
+    // null until someone (this device's user_fs profile) has actually saved
+    // a line on this rapport.
+    edited_by: userFS | null;
     rapportfsLigne: RapportFsLigne[];
 }
 

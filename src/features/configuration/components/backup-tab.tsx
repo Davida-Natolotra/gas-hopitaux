@@ -9,12 +9,12 @@ import Divider from "@mui/material/Divider";
 import BackupIcon from "@mui/icons-material/Backup";
 import RestoreIcon from "@mui/icons-material/Restore";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
-import {backupDatabase, restoreDatabase} from "./backup-service.ts";
+import {backupDatabase, restoreDatabase} from "../services/backup-service.ts";
 
 export default function BackupTab() {
     const [backingUp, setBackingUp] = useState(false);
     const [restoring, setRestoring] = useState(false);
-    const [message, setMessage] = useState<{severity: "success" | "error"; text: string} | null>(null);
+    const [message, setMessage] = useState<{ severity: "success" | "error"; text: string } | null>(null);
 
     const handleBackup = async () => {
         setBackingUp(true);

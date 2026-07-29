@@ -97,3 +97,71 @@ export async function refreshMyProduitProgrammeNiveau(): Promise<void> {
                                      WHERE ou_id = (SELECT fs_id FROM my_organisation_unit WHERE id = 1))`,
     );
 }
+
+// Used by the startup routing check: whether the saved FS actually has any
+// applicable produits yet (i.e. a config was imported and matches its group).
+export async function hasAnyMyProduitProgrammeNiveau(): Promise<boolean> {
+    const db = await getDb();
+    const rows = await db.select<unknown[]>("SELECT 1 FROM my_produitprogrammeniveau LIMIT 1");
+    return rows.length > 0;
+}
+
+export interface ProduitSummary {
+    ppnId: string;
+    produitName: string;
+    unit: string;
+}
+
+export interface ProgrammeProduits {
+    programmeId: string;
+    programmeName: string;
+    // Distinct organisation-unit-group names (the "niveau") the saved FS
+    // belongs to that this programme's produits apply to — usually one, but
+    // an FS can be a member of more than one group.
+    niveaux: string[];
+    produits: ProduitSummary[];
+}
+
+interface ProduitProgrammeRow {
+    programme_id: string;
+    programme_name: string;
+    ppn_id: string;
+    produit_name: string;
+    produit_unit: string;
+    org_group_name: string;
+}
+
+// The saved FS's applicable produits (my_produitprogrammeniveau), grouped by
+// programme — used to show what a config import actually configured.
+export async function listMyProduitsByProgramme(): Promise<ProgrammeProduits[]> {
+    const db = await getDb();
+    const rows = await db.select<ProduitProgrammeRow[]>(
+        `SELECT pr.id               AS programme_id,
+                pr.name             AS programme_name,
+                mppn.id             AS ppn_id,
+                p.name              AS produit_name,
+                p.unit              AS produit_unit,
+                mppn.org_group_name AS org_group_name
+         FROM my_produitprogrammeniveau mppn
+                  JOIN produit p ON p.id = mppn.produit_id
+                  JOIN programme pr ON pr.id = mppn.programme_id
+         ORDER BY pr.name, (mppn."order" IS NULL), mppn."order", p.name`,
+    );
+
+    const sections = new Map<string, ProgrammeProduits>();
+    const niveauxByProgramme = new Map<string, Set<string>>();
+    for (const row of rows) {
+        let section = sections.get(row.programme_id);
+        if (!section) {
+            section = {programmeId: row.programme_id, programmeName: row.programme_name, niveaux: [], produits: []};
+            sections.set(row.programme_id, section);
+            niveauxByProgramme.set(row.programme_id, new Set());
+        }
+        niveauxByProgramme.get(row.programme_id)!.add(row.org_group_name);
+        section.produits.push({ppnId: row.ppn_id, produitName: row.produit_name, unit: row.produit_unit});
+    }
+    for (const section of sections.values()) {
+        section.niveaux = Array.from(niveauxByProgramme.get(section.programmeId)!);
+    }
+    return Array.from(sections.values());
+}

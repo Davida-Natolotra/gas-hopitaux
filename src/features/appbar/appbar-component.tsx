@@ -8,22 +8,17 @@ import Typography from '@mui/material/Typography';
 import Menu from '@mui/material/Menu';
 import MenuIcon from '@mui/icons-material/Menu';
 import Container from '@mui/material/Container';
-import Avatar from '@mui/material/Avatar';
 import Button from '@mui/material/Button';
-import Tooltip from '@mui/material/Tooltip';
 import MenuItem from '@mui/material/MenuItem';
-import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import {Link as RouterLink, useLocation} from 'react-router-dom';
-import ThemeSettingsMenu from '../../theme/theme-settings-menu';
 import logo from '../../assets/Logo_DPLMT.svg';
 
 const pages = [
-    {label: 'Rapports', path: '/', activePrefixes: ['/rapport-view']},
     {label: 'Alertes', path: '/alertes'},
+    {label: 'Rapports', path: '/rapports', activePrefixes: ['/rapport-view']},
     {label: 'Paramètres', path: '/parametres'},
     {label: 'Aide', path: '/help'},
 ];
-const settings = ['Profile', 'Account', 'Dashboard', 'Logout'];
 
 function isPageActive(page: (typeof pages)[number], pathname: string): boolean {
     if (pathname === page.path) return true;
@@ -32,22 +27,14 @@ function isPageActive(page: (typeof pages)[number], pathname: string): boolean {
 
 function ResponsiveAppBar() {
     const [anchorElNav, setAnchorElNav] = useState<null | HTMLElement>(null);
-    const [anchorElUser, setAnchorElUser] = useState<null | HTMLElement>(null);
     const {pathname} = useLocation();
 
     const handleOpenNavMenu = (event: React.MouseEvent<HTMLElement>) => {
         setAnchorElNav(event.currentTarget);
     };
-    const handleOpenUserMenu = (event: React.MouseEvent<HTMLElement>) => {
-        setAnchorElUser(event.currentTarget);
-    };
 
     const handleCloseNavMenu = () => {
         setAnchorElNav(null);
-    };
-
-    const handleCloseUserMenu = () => {
-        setAnchorElUser(null);
     };
 
     return (
@@ -82,7 +69,7 @@ function ResponsiveAppBar() {
                             </Typography>
                         </Box>
 
-                        <Box sx={{flexGrow: 1, display: {xs: 'flex', md: 'none'}}}>
+                        <Box sx={{flexGrow: 1, display: {xs: 'flex', md: 'none'}, justifyContent: 'flex-end'}}>
                             <IconButton
                                 size="large"
                                 aria-label="account of current user"
@@ -122,7 +109,7 @@ function ResponsiveAppBar() {
                                 })}
                             </Menu>
                         </Box>
-                        <Box sx={{flexGrow: 1, display: {xs: 'none', md: 'flex'}}}>
+                        <Box sx={{flexGrow: 1, display: {xs: 'none', md: 'flex'}, justifyContent: 'flex-end'}}>
                             {pages.map((page) => {
                                 const isActive = isPageActive(page, pathname);
                                 return (
@@ -131,6 +118,7 @@ function ResponsiveAppBar() {
                                         component={RouterLink}
                                         to={page.path}
                                         onClick={handleCloseNavMenu}
+                                        color="inherit"
                                         sx={{
                                             my: 2,
                                             mx: 0.5,
@@ -147,38 +135,6 @@ function ResponsiveAppBar() {
                                     </Button>
                                 );
                             })}
-                        </Box>
-                        <Box sx={{flexGrow: 0, display: 'flex', alignItems: 'center'}}>
-                            <ThemeSettingsMenu/>
-                            <Tooltip title="Paramètres du compte">
-                                <IconButton onClick={handleOpenUserMenu} sx={{p: 0}}>
-                                    <Avatar>
-                                        <AccountCircleIcon/>
-                                    </Avatar>
-                                </IconButton>
-                            </Tooltip>
-                            <Menu
-                                sx={{mt: '45px'}}
-                                id="menu-appbar"
-                                anchorEl={anchorElUser}
-                                anchorOrigin={{
-                                    vertical: 'top',
-                                    horizontal: 'right',
-                                }}
-                                keepMounted
-                                transformOrigin={{
-                                    vertical: 'top',
-                                    horizontal: 'right',
-                                }}
-                                open={Boolean(anchorElUser)}
-                                onClose={handleCloseUserMenu}
-                            >
-                                {settings.map((setting) => (
-                                    <MenuItem key={setting} onClick={handleCloseUserMenu}>
-                                        <Typography sx={{textAlign: 'center'}}>{setting}</Typography>
-                                    </MenuItem>
-                                ))}
-                            </Menu>
                         </Box>
                     </Toolbar>
                 </Container>

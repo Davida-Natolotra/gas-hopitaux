@@ -1,6 +1,7 @@
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 mod backup;
+mod export_utglfs;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -35,6 +36,12 @@ pub fn run() {
             sql: include_str!("../migrations/0004_add_cmma.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "create_device_and_user_fs",
+            sql: include_str!("../migrations/0005_create_device_and_user_fs.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -48,7 +55,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             backup::export_database,
-            backup::import_database
+            backup::import_database,
+            export_utglfs::export_utglfs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

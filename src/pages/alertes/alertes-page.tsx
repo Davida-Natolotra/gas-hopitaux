@@ -1,7 +1,9 @@
+import AlertesView from "../../features/alertes/components/alertes-view.tsx";
+
 export default function AlertesPage() {
     return (
         <div>
-            <h1>Alertes pages</h1>
+            <AlertesView/>
         </div>
-    )
+    );
 }

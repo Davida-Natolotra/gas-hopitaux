@@ -1,5 +1,5 @@
 import type {ReactNode} from "react";
-import {useEffect, useState} from "react";
+import {useEffect, useRef, useState} from "react";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Grid from "@mui/material/Grid";
@@ -13,6 +13,7 @@ import Paper from "@mui/material/Paper";
 import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
 import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import TextField from "@mui/material/TextField";
@@ -27,32 +28,22 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import EditIcon from "@mui/icons-material/Edit";
 import RemoveIcon from "@mui/icons-material/Remove";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import type {DetailSDU, RapportFsLigne} from "../model/rapport-model.ts";
 import {isLigneComplete} from "../model/rapport-completeness.ts";
-import type {RapportViewRow} from "./rapport-view-service.ts";
-import {getDetailSdu, saveDetailSdu, saveRapportFsLigne} from "./rapport-view-service.ts";
-import {refreshRapportFsStatus} from "./rapportfs-service.ts";
-import {formatDate} from "../../../utils/date-format.ts";
-
+import {COMPLETENESS_STYLES, completenessStyle} from "../styles/completeness-style.ts";
+import {situationStyle} from "../styles/situation-style.ts";
+import type {RapportViewRow} from "../services/rapport-view-service.ts";
+import {getDetailSdu, saveDetailSdu, saveRapportFsLigne} from "../services/rapport-view-service.ts";
+import {refreshRapportFsStatus} from "../services/rapportfs-service.ts";
+import {generateUuid} from "../../../services/id-service.ts";
+import {formatMoisAnnee} from "../../../utils/date-format.ts";
 // Accent rule: for the "movement" quantities, filled-in data is olive, blanks
 // are red (draws the eye to missing entries); the derived/computed fields
 // (stock, SDU, ecart, CMM, CMMA, MSD) always get the teal accent regardless of data.
-const ACCENT_FILLED = "#9e9d24";
-const ACCENT_BLANK = "#b71c1c";
-const ACCENT_COMPUTED = "#04c1ab";
-
-const SITUATION_STYLES: Record<string, { bg: string; color: string }> = {
-    RUPTURE: {bg: "#d32f2f", color: "#fff"},
-    "SOUS STOCK": {bg: "#fbc02d", color: "#000"},
-    NORMAL: {bg: "#dce775", color: "#000"},
-    SURSTOCK: {bg: "#00bcd4", color: "#ffffff"},
-};
-const SITUATION_STYLE_UNKNOWN = {bg: "grey.300", color: "text.secondary"};
-
-function situationStyle(situation: string | undefined): { bg: string; color: string } {
-    if (!situation) return SITUATION_STYLE_UNKNOWN;
-    return SITUATION_STYLES[situation] ?? SITUATION_STYLE_UNKNOWN;
-}
+const ACCENT_FILLED = COMPLETENESS_STYLES.complete.bg;
+const ACCENT_BLANK = COMPLETENESS_STYLES.incomplete.bg;
+const ACCENT_COMPUTED = "#0ebaa8";
 
 type NumericFieldKey =
     | "qte_dispo_deb_mois"
@@ -184,7 +175,7 @@ function FieldGrid({
                                     {detailSdu!.map((d) => (
                                         <Stack key={d.id} direction="row" spacing={4}>
                                             <span>SDU : {d.sdu}</span>
-                                            <span>Date de péremption : {formatDate(d.date_peremption)}</span>
+                                            <span>Date de péremption : {formatMoisAnnee(d.date_peremption)}</span>
                                         </Stack>
                                     ))}
                                 </Stack>
@@ -392,8 +383,58 @@ interface EditableSduRow {
     date_peremption: string;
 }
 
+// An <input type="month"> only accepts an exact "YYYY-MM" value — trim any
+// day component from older "YYYY-MM-DD" records so the picker still shows it.
+function toMonthInputValue(value: string | null): string {
+    return value ? value.slice(0, 7) : "";
+}
+
 function detailSduToRows(entries: DetailSDU[]): EditableSduRow[] {
-    return entries.map((d) => ({key: d.id, sdu: String(d.sdu), date_peremption: d.date_peremption ?? ""}));
+    return entries.map((d) => ({key: d.id, sdu: String(d.sdu), date_peremption: toMonthInputValue(d.date_peremption)}));
+}
+
+// A plain type="month" input shows the browser's native indicator, which
+// renders as a plain dropdown chevron rather than a calendar icon. Hide it
+// and show a calendar-month icon instead, wired to the input's own picker.
+function SduMonthField({value, error, helperText, onChange}: {
+    value: string;
+    error: boolean;
+    helperText?: string;
+    onChange: (value: string) => void;
+}) {
+    const inputRef = useRef<HTMLInputElement>(null);
+    return (
+        <TextField
+            variant="standard"
+            label="Date de péremption"
+            type="month"
+            fullWidth
+            required
+            error={error}
+            helperText={helperText}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            inputRef={inputRef}
+            slotProps={{
+                inputLabel: {shrink: true},
+                input: {
+                    endAdornment: (
+                        <InputAdornment position="end">
+                            <IconButton
+                                size="small"
+                                edge="end"
+                                aria-label="Choisir le mois de péremption"
+                                onClick={() => inputRef.current?.showPicker?.()}
+                            >
+                                <CalendarMonthIcon fontSize="small"/>
+                            </IconButton>
+                        </InputAdornment>
+                    ),
+                },
+            }}
+            sx={{"& input[type='month']::-webkit-calendar-picker-indicator": {display: "none"}}}
+        />
+    );
 }
 
 function SduDetailsEditor({
@@ -430,17 +471,11 @@ function SduDetailsEditor({
                                 value={row.sdu}
                                 onChange={(e) => onChange(row.key, "sdu", e.target.value)}
                             />
-                            <TextField
-                                variant="standard"
-                                label="Date de péremption"
-                                type="date"
-                                fullWidth
-                                required
+                            <SduMonthField
+                                value={row.date_peremption}
                                 error={dateMissing}
                                 helperText={dateMissing ? "Date requise" : undefined}
-                                value={row.date_peremption}
-                                onChange={(e) => onChange(row.key, "date_peremption", e.target.value)}
-                                slotProps={{inputLabel: {shrink: true}}}
+                                onChange={(value) => onChange(row.key, "date_peremption", value)}
                             />
                             <IconButton size="small" onClick={() => onRemove(row.key)} aria-label="Supprimer ce SDU">
                                 <RemoveIcon fontSize="small"/>
@@ -505,7 +540,7 @@ function EditLigneDialog({
     const handleChange = (key: NumericFieldKey, value: string) => setForm((prev) => ({...prev, [key]: value}));
 
     const handleAddSdu = () => setSduRows((prev) => [...prev, {
-        key: crypto.randomUUID(),
+        key: generateUuid(),
         sdu: "",
         date_peremption: ""
     }]);
@@ -644,8 +679,11 @@ function ProduitRow({row, rapportfsId}: { row: RapportViewRow; rapportfsId: stri
                 <TableCell>{row.produitName}</TableCell>
                 <TableCell>{row.unit}</TableCell>
                 <TableCell>
-                    <Chip label={isComplete ? "Complet" : "Incomplet"} color={isComplete ? "success" : "error"}
-                          size="small"/>
+                    <Chip
+                        label={isComplete ? "Complet" : "Incomplet"}
+                        size="small"
+                        sx={{bgcolor: completenessStyle(isComplete).bg, color: completenessStyle(isComplete).color}}
+                    />
                 </TableCell>
                 <TableCell>
                     <Chip

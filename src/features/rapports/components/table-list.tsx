@@ -4,6 +4,7 @@ import Chip from "@mui/material/Chip";
 import Alert from "@mui/material/Alert";
 import type {RapportFs} from "../model/rapport-model.ts";
 import {formatDate, formatMoisAnnee} from "../../../utils/date-format.ts";
+import {completenessStyle} from "../styles/completeness-style.ts";
 
 interface RapportfsTableProps {
     rows: RapportFs[];
@@ -35,8 +36,8 @@ export default function RapportfsTable({
             renderCell: ({value}) => (
                 <Chip
                     label={value ? "Complet" : "Incomplet"}
-                    color={value ? "success" : "warning"}
                     size="small"
+                    sx={{bgcolor: completenessStyle(value).bg, color: completenessStyle(value).color}}
                 />
             ),
         },

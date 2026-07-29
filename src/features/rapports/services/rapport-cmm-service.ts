@@ -1,4 +1,5 @@
 import {getDb} from "../../../services/db.ts";
+import {generateUuid} from "../../../services/id-service.ts";
 import type {RapportFs} from "../model/rapport-model.ts";
 import {refreshRapportFsStatus} from "./rapportfs-service.ts";
 import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
@@ -81,7 +82,7 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
              ON CONFLICT(rapportfs_id, produit_programme_niveau_id) DO UPDATE SET
                  cmm  = excluded.cmm,
                  cmma = excluded.cmma`,
-            [crypto.randomUUID(), targetId, produitProgrammeNiveauId, cmm, cmma],
+            [generateUuid(), targetId, produitProgrammeNiveauId, cmm, cmma],
         );
         if (result.rowsAffected > 0) updated = true;
     }

@@ -1,7 +1,7 @@
 import Database from "@tauri-apps/plugin-sql";
-import {getDb} from "../../services/db.ts";
-import {refreshMyProduitProgrammeNiveau} from "../organisation-units/organisation-units-service.ts";
-import type {ConfigFile} from "./config-model.ts";
+import {getDb} from "../../../services/db.ts";
+import {refreshMyProduitProgrammeNiveau} from "../../organisation-units/organisation-units-service.ts";
+import type {ConfigFile} from "../models/config-model.ts";
 
 // Stay comfortably under SQLite's default 999-bound-variable limit per statement.
 const MAX_PARAMS_PER_STATEMENT = 900;
@@ -25,7 +25,8 @@ async function bulkInsert(
                 return `(${row.map((_, j) => `$${start + j + 1}`).join(", ")})`;
             })
             .join(", ");
-        await db.execute(`INSERT INTO ${table} (${columns.join(", ")}) VALUES ${placeholders}`, values);
+        await db.execute(`INSERT INTO ${table} (${columns.join(", ")})
+                          VALUES ${placeholders}`, values);
     }
 }
 
@@ -59,7 +60,8 @@ async function bulkUpsert(
             })
             .join(", ");
         await db.execute(
-            `INSERT INTO ${table} (${columns.join(", ")}) VALUES ${placeholders} ${conflictClause}`,
+            `INSERT INTO ${table} (${columns.join(", ")})
+             VALUES ${placeholders} ${conflictClause}`,
             values,
         );
     }

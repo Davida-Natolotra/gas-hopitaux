@@ -1,4 +1,5 @@
 import {getDb} from "../../../services/db.ts";
+import {generateUuid} from "../../../services/id-service.ts";
 import type {DetailSDU, RapportFsLigne} from "../model/rapport-model.ts";
 import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
 
@@ -198,7 +199,7 @@ export async function saveRapportFsLigne(
              observation            = excluded.observation
          RETURNING id`,
         [
-            crypto.randomUUID(),
+            generateUuid(),
             rapportfsId,
             produitProgrammeNiveauId,
             ligne.qte_dispo_deb_mois,
@@ -233,7 +234,7 @@ export async function saveDetailSdu(rapportfsLigneId: string, entries: DetailSdu
     for (const entry of entries) {
         await db.execute(
             "INSERT INTO detail_sdu (id, rapportfs_ligne_id, sdu, date_peremption) VALUES ($1, $2, $3, $4)",
-            [crypto.randomUUID(), rapportfsLigneId, entry.sdu, entry.date_peremption],
+            [generateUuid(), rapportfsLigneId, entry.sdu, entry.date_peremption],
         );
     }
 }
