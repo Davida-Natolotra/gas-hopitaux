@@ -1,5 +1,5 @@
-import {useEffect, useState} from "react";
 import type {ReactNode} from "react";
+import {useEffect, useState} from "react";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Grid from "@mui/material/Grid";
@@ -45,7 +45,7 @@ const SITUATION_STYLES: Record<string, { bg: string; color: string }> = {
     RUPTURE: {bg: "#d32f2f", color: "#fff"},
     "SOUS STOCK": {bg: "#fbc02d", color: "#000"},
     NORMAL: {bg: "#dce775", color: "#000"},
-    SURSTOCK: {bg: "#00bcd4", color: "#000"},
+    SURSTOCK: {bg: "#00bcd4", color: "#ffffff"},
 };
 const SITUATION_STYLE_UNKNOWN = {bg: "grey.300", color: "text.secondary"};
 
@@ -130,10 +130,10 @@ function FieldBox({label, value, accent}: { label: string; value: ReactNode; acc
 }
 
 function FieldGrid({
-                        ligne,
-                        detailSdu,
-                        loadingSdu,
-                    }: {
+                       ligne,
+                       detailSdu,
+                       loadingSdu,
+                   }: {
     ligne: RapportFsLigne | null;
     detailSdu: DetailSDU[] | null;
     loadingSdu: boolean;
@@ -201,10 +201,15 @@ function FieldGrid({
 
 type FormState = Record<NumericFieldKey, string>;
 
-function ligneToFormState(ligne: RapportFsLigne | null): FormState {
+// When this produit's qte_dispo_deb_mois hasn't actually been entered this
+// month yet — either there's no line at all, or one exists only because the
+// rolling-CMM auto-fill created it (cmm/cmma set, nothing else) — it
+// defaults to the previous consecutive month's sdu_fin_mois for the same
+// produit (editable, not persisted until the user saves).
+function ligneToFormState(ligne: RapportFsLigne | null, previousSduFinMois: number | null): FormState {
     const str = (value: number | null | undefined) => (value === null || value === undefined ? "" : String(value));
     return {
-        qte_dispo_deb_mois: str(ligne?.qte_dispo_deb_mois),
+        qte_dispo_deb_mois: ligne?.qte_dispo_deb_mois != null ? str(ligne.qte_dispo_deb_mois) : str(previousSduFinMois),
         qte_rec_mois: str(ligne?.qte_rec_mois),
         qte_dist_patient: str(ligne?.qte_dist_patient),
         qte_dist_ac: str(ligne?.qte_dist_ac),
@@ -224,6 +229,7 @@ interface ComputedValues {
     stock_theorique: number;
     ecart: number;
     sdu_fin_mois: number;
+    cmm: number;
     msd: number;
     situation: string;
 }
@@ -238,7 +244,8 @@ function computeSituation(msd: number): string {
 // stock_theorique and ecart recompute live from the quantity fields; SDU fin
 // du mois recomputes live from the Détails SDU list; MSD recomputes from SDU
 // and CMM; situation recomputes from MSD. Blank/invalid inputs count as 0
-// rather than breaking the calculation.
+// rather than breaking the calculation. CMM is rounded to the nearest
+// integer and MSD to 2 decimal places, matching how they're persisted.
 function computeValues(form: FormState, sduRows: EditableSduRow[]): ComputedValues {
     const num = (value: string) => {
         if (value.trim() === "") return 0;
@@ -254,10 +261,10 @@ function computeValues(form: FormState, sduRows: EditableSduRow[]): ComputedValu
         num(form.qte_perime_avarie_mois);
     const ecart = num(form.qte_dispo_deb_mois) - stock_theorique;
     const sdu_fin_mois = sduRows.reduce((sum, row) => sum + num(row.sdu), 0);
-    const cmm = num(form.cmm);
-    const msd = cmm ? sdu_fin_mois / cmm : 0;
+    const cmm = Math.round(num(form.cmm));
+    const msd = cmm ? Math.round((sdu_fin_mois / cmm) * 100) / 100 : 0;
     const situation = computeSituation(msd);
-    return {stock_theorique, ecart, sdu_fin_mois, msd, situation};
+    return {stock_theorique, ecart, sdu_fin_mois, cmm, msd, situation};
 }
 
 function formStateToLigne(
@@ -280,7 +287,7 @@ function formStateToLigne(
         stock_theorique: computed.stock_theorique,
         sdu_fin_mois: computed.sdu_fin_mois,
         ecart: computed.ecart,
-        cmm: num(form.cmm),
+        cmm: form.cmm.trim() === "" ? null : computed.cmm,
         cmma: num(form.cmma),
         msd: computed.msd,
         situation: computed.situation,
@@ -456,6 +463,7 @@ interface EditLigneDialogProps {
     rapportfsId: string;
     ligne: RapportFsLigne | null;
     ligneId: string | null;
+    previousSduFinMois: number | null;
     onSaved: (ligne: RapportFsLigne, ligneId: string, detailSdu: DetailSDU[]) => void;
 }
 
@@ -468,9 +476,10 @@ function EditLigneDialog({
                              rapportfsId,
                              ligne,
                              ligneId,
+                             previousSduFinMois,
                              onSaved
                          }: EditLigneDialogProps) {
-    const [form, setForm] = useState<FormState>(() => ligneToFormState(ligne));
+    const [form, setForm] = useState<FormState>(() => ligneToFormState(ligne, previousSduFinMois));
     const [observation, setObservation] = useState(() => ligne?.observation ?? "");
     const [sduRows, setSduRows] = useState<EditableSduRow[]>([]);
     const [loadingSdu, setLoadingSdu] = useState(false);
@@ -479,7 +488,7 @@ function EditLigneDialog({
 
     useEffect(() => {
         if (!open) return;
-        setForm(ligneToFormState(ligne));
+        setForm(ligneToFormState(ligne, previousSduFinMois));
         setObservation(ligne?.observation ?? "");
         setError(null);
         if (ligneId) {
@@ -491,7 +500,7 @@ function EditLigneDialog({
         } else {
             setSduRows([]);
         }
-    }, [open, ligne, ligneId]);
+    }, [open, ligne, ligneId, previousSduFinMois]);
 
     const handleChange = (key: NumericFieldKey, value: string) => setForm((prev) => ({...prev, [key]: value}));
 
@@ -672,6 +681,7 @@ function ProduitRow({row, rapportfsId}: { row: RapportViewRow; rapportfsId: stri
                 rapportfsId={rapportfsId}
                 ligne={ligne}
                 ligneId={ligneId}
+                previousSduFinMois={row.previousSduFinMois}
                 onSaved={handleSaved}
             />
         </>

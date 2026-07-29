@@ -9,6 +9,7 @@ import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import TableList from "./table-list.tsx";
 import RapportfsAddSheet from "./rapportfs-add-sheet.tsx";
 import {deleteRapportFs, listRapportFs} from "./rapportfs-service.ts";
+import {computeRollingCmm} from "./rapport-cmm-service.ts";
 import type {RapportFs} from "../model/rapport-model.ts";
 
 const emptySelection: GridRowSelectionModel = {type: "include", ids: new Set()};
@@ -25,7 +26,9 @@ function RapportTableList() {
         setLoading(true);
         setError(null);
         try {
-            setRows(await listRapportFs());
+            const initial = await listRapportFs();
+            const touchedIds = await computeRollingCmm(initial);
+            setRows(touchedIds.length > 0 ? await listRapportFs() : initial);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         } finally {

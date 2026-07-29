@@ -11,7 +11,8 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
 import type {MyOrganisationUnit} from "../../organisation-units/organisation-unit-model.ts";
 import {getMyOrganisationUnit} from "../../organisation-units/organisation-units-service.ts";
-import {createRapportFs} from "./rapportfs-service.ts";
+import {createRapportFs, listRapportFs} from "./rapportfs-service.ts";
+import {computeRollingCmm} from "./rapport-cmm-service.ts";
 
 interface RapportfsAddSheetProps {
     open: boolean;
@@ -45,8 +46,11 @@ export default function RapportfsAddSheet({open, onClose}: RapportfsAddSheetProp
         setCreateError(null);
         try {
             const id = await createRapportFs({fsId: orgUnit.fs.id, moisAnnee});
+            // If this is the 4th consecutive month, fill in CMM/CMMA right
+            // away rather than waiting for the next list-page visit.
+            await computeRollingCmm(await listRapportFs());
             onClose();
-            navigate(`/rapport-edit/${id}`);
+            navigate(`/rapport-view/${id}`);
         } catch (err) {
             setCreateError(err instanceof Error ? err.message : String(err));
         } finally {

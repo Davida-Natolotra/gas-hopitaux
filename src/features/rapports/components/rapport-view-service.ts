@@ -1,5 +1,6 @@
 import {getDb} from "../../../services/db.ts";
 import type {DetailSDU, RapportFsLigne} from "../model/rapport-model.ts";
+import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
 
 export interface RapportViewRow {
     ppnId: string;
@@ -7,6 +8,10 @@ export interface RapportViewRow {
     unit: string;
     ligneId: string | null;
     ligne: RapportFsLigne | null;
+    // sdu_fin_mois of the same produit from the previous consecutive month's
+    // rapportfs (same fs_id), when one exists. Used to default the new
+    // month's qte_dispo_deb_mois when this produit hasn't been reported yet.
+    previousSduFinMois: number | null;
 }
 
 export interface ProgrammeSection {
@@ -37,6 +42,7 @@ interface RapportViewQueryRow {
     msd: number | null;
     situation: string | null;
     observation: string | null;
+    prev_sdu_fin_mois: number | null;
 }
 
 function toLigne(row: RapportViewQueryRow): RapportFsLigne | null {
@@ -62,12 +68,38 @@ function toLigne(row: RapportViewQueryRow): RapportFsLigne | null {
     };
 }
 
+// Finds the rapportfs (same fs_id) whose mois_annee is exactly one month
+// before the given rapportfs's, if any.
+async function findPreviousConsecutiveRapportfsId(rapportfsId: string): Promise<string | null> {
+    const db = await getDb();
+    const current = await db.select<{ mois_annee: string | null; fs_id: string }[]>(
+        `SELECT mois_annee, fs_id FROM rapportfs WHERE id = $1`,
+        [rapportfsId],
+    );
+    const ym = parseMoisAnnee(current[0]?.mois_annee ?? null);
+    if (!ym) return null;
+    const previousKey = monthKey(shiftMonths(ym, -1));
+
+    const candidates = await db.select<{ id: string; mois_annee: string | null }[]>(
+        `SELECT id, mois_annee FROM rapportfs WHERE fs_id = $1 AND id != $2`,
+        [current[0].fs_id, rapportfsId],
+    );
+    const match = candidates.find((c) => {
+        const cym = parseMoisAnnee(c.mois_annee);
+        return cym !== null && monthKey(cym) === previousKey;
+    });
+    return match?.id ?? null;
+}
+
 // Loops over my_produitprogrammeniveau (the current FS's applicable produits,
 // refreshed on config import / organisation-unit save) and left-joins this
 // report's own rapportfs_ligne rows, so a produit with no entry yet still
-// shows up as an "Incomplet" row.
+// shows up as an "Incomplet" row. Also left-joins the previous consecutive
+// month's rapportfs_ligne (if any) to carry over sdu_fin_mois as the
+// suggested qte_dispo_deb_mois for produits not yet reported this month.
 export async function getProgrammeSections(rapportfsId: string): Promise<ProgrammeSection[]> {
     const db = await getDb();
+    const previousRapportfsId = await findPreviousConsecutiveRapportfsId(rapportfsId);
     const rows = await db.select<RapportViewQueryRow[]>(
         `SELECT mppn.id                        AS ppn_id,
                 p.name                         AS produit_name,
@@ -89,14 +121,17 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
                 l.cmma,
                 l.msd,
                 l.situation,
-                l.observation
+                l.observation,
+                prev_l.sdu_fin_mois            AS prev_sdu_fin_mois
          FROM my_produitprogrammeniveau mppn
                   JOIN produit p ON p.id = mppn.produit_id
                   JOIN programme pr ON pr.id = mppn.programme_id
                   LEFT JOIN rapportfs_ligne l
                             ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = $1
+                  LEFT JOIN rapportfs_ligne prev_l
+                            ON prev_l.produit_programme_niveau_id = mppn.id AND prev_l.rapportfs_id = $2
          ORDER BY pr.name, (mppn."order" IS NULL), mppn."order", p.name`,
-        [rapportfsId],
+        [rapportfsId, previousRapportfsId ?? ""],
     );
 
     const sections = new Map<string, ProgrammeSection>();
@@ -112,6 +147,7 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
             unit: row.produit_unit,
             ligneId: row.ligne_id,
             ligne: toLigne(row),
+            previousSduFinMois: row.prev_sdu_fin_mois,
         });
     }
     return Array.from(sections.values());
