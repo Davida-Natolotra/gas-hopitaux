@@ -26,4 +26,7 @@ tauri-plugin-sql = { version = "2.4.0", features = ["sqlite"] }
 tauri-plugin-dialog = "2.7.2"
 arrow = { version = "59.1.0", default-features = false }
 parquet = { version = "59.1.0", default-features = false, features = ["arrow"] }
+base64 = "0.23.0"
+tauri-plugin-fs = "2.5.1"
+bytes = "1.12.1"
 

@@ -3,6 +3,7 @@ import "./App.scss";
 import {Outlet} from "react-router-dom";
 import ResponsiveAppBar from "./features/appbar/appbar-component.tsx";
 import {getDeviceId} from "./services/device-service.ts";
+import {NotificationProvider} from "./notifications/notification-provider.tsx";
 
 function App() {
     useEffect(() => {
@@ -10,12 +11,12 @@ function App() {
     }, []);
 
     return (
-        <> <ResponsiveAppBar/>
+        <NotificationProvider>
+            <ResponsiveAppBar/>
             <main className="container">
                 <Outlet/>
             </main>
-        </>
-
+        </NotificationProvider>
     );
 }
 

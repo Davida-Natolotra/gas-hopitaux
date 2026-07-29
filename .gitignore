@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 .claude
+
+# Android release signing — never commit the key material or its passwords
+*.jks
+*.keystore
+keystore.properties

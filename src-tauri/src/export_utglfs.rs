@@ -1,9 +1,10 @@
-use std::fs::File;
 use std::sync::Arc;
 
 use arrow::array::{Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine;
 use parquet::arrow::ArrowWriter;
 use serde::Deserialize;
 use serde_json::Value;
@@ -20,17 +21,23 @@ pub struct UtglfsExportPayload {
     rapportfs_ligne: Vec<Value>,
 }
 
-/// Writes a single-row, 5-column Parquet file — one column per source table,
-/// each holding that table's rows serialized as a JSON array string — and
-/// saves it at `dest`. A real Parquet file is written; `.utglfs` is just the
-/// extension the caller chooses to save it under.
+/// Builds a single-row, 5-column Parquet file in memory — one column per
+/// source table, each holding that table's rows serialized as a JSON array
+/// string — and returns it base64-encoded. A real Parquet file is produced;
+/// `.utglfs` is just the extension the caller chooses to save it under.
+///
+/// This deliberately does NOT write to a path itself: on Android/iOS, the
+/// destination the user picks via the save dialog is a content:// SAF URI,
+/// not a real filesystem path, and plain std::fs can't write to that. The
+/// caller writes the returned bytes with `@tauri-apps/plugin-fs`'s
+/// `writeFile`, which knows how to handle both real paths and SAF URIs.
 ///
 /// Parquet requires one fixed schema for the whole file, so this is the only
 /// way to carry 5 differently-shaped, independently-sized tables in a single
 /// file: one row, one JSON blob per table, rather than genuine per-table row
 /// structure.
 #[tauri::command]
-pub fn export_utglfs(dest: String, payload: UtglfsExportPayload) -> Result<(), String> {
+pub fn export_utglfs(payload: UtglfsExportPayload) -> Result<String, String> {
     let named_rows: [(&str, &Vec<Value>); 5] = [
         ("my_produitprogrammeniveau", &payload.my_produitprogrammeniveau),
         ("my_organisation_unit", &payload.my_organisation_unit),
@@ -53,12 +60,14 @@ pub fn export_utglfs(dest: String, payload: UtglfsExportPayload) -> Result<(), S
 
     let batch = RecordBatch::try_new(schema.clone(), columns).map_err(|e| e.to_string())?;
 
-    let file = File::create(&dest).map_err(|e| format!("Échec de la création du fichier : {e}"))?;
-    let mut writer = ArrowWriter::try_new(file, schema, None).map_err(|e| e.to_string())?;
-    writer.write(&batch).map_err(|e| e.to_string())?;
-    writer.close().map_err(|e| e.to_string())?;
+    let mut buffer: Vec<u8> = Vec::new();
+    {
+        let mut writer = ArrowWriter::try_new(&mut buffer, schema, None).map_err(|e| e.to_string())?;
+        writer.write(&batch).map_err(|e| e.to_string())?;
+        writer.close().map_err(|e| e.to_string())?;
+    }
 
-    Ok(())
+    Ok(BASE64.encode(&buffer))
 }
 
 #[cfg(test)]
@@ -66,13 +75,9 @@ mod tests {
     use super::*;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use serde_json::json;
-    use std::fs;
 
     #[test]
-    fn writes_a_readable_single_row_parquet_file() {
-        let dest = std::env::temp_dir().join(format!("utglfs_test_{}.utglfs", std::process::id()));
-        let dest_str = dest.to_string_lossy().to_string();
-
+    fn produces_a_readable_single_row_parquet_payload() {
         let payload = UtglfsExportPayload {
             my_produitprogrammeniveau: vec![json!({"id": "ppn-1", "produit_id": 5})],
             my_organisation_unit: vec![json!({"id": 1, "fs_id": "fs-001"})],
@@ -85,11 +90,11 @@ mod tests {
             })],
         };
 
-        export_utglfs(dest_str.clone(), payload).expect("export_utglfs should succeed");
+        let encoded = export_utglfs(payload).expect("export_utglfs should succeed");
+        let bytes = BASE64.decode(&encoded).expect("result should be valid base64");
 
-        let file = fs::File::open(&dest).expect("exported file should be openable");
-        let reader = ParquetRecordBatchReaderBuilder::try_new(file)
-            .expect("exported file should be valid parquet")
+        let reader = ParquetRecordBatchReaderBuilder::try_new(bytes::Bytes::from(bytes))
+            .expect("bytes should be valid parquet")
             .build()
             .expect("should build a record batch reader");
 
@@ -116,7 +121,5 @@ mod tests {
             .expect("column should be a Utf8 array");
         let parsed: Vec<Value> = serde_json::from_str(ligne_col.value(0)).expect("column should round-trip as JSON");
         assert_eq!(parsed[0]["detail_sdu"][0]["sdu"], 3);
-
-        let _ = fs::remove_file(&dest);
     }
 }

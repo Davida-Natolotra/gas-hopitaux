@@ -1,5 +1,6 @@
 import {invoke} from "@tauri-apps/api/core";
 import {save} from "@tauri-apps/plugin-dialog";
+import {writeFile} from "@tauri-apps/plugin-fs";
 import {getDb} from "../../../services/db.ts";
 
 const UTGLFS_FILTERS = [{name: "Export UTGL FS", extensions: ["utglfs"]}];
@@ -118,9 +119,22 @@ async function buildExportPayload(rapportfsId: string): Promise<UtglfsExportPayl
     return {my_produitprogrammeniveau, my_organisation_unit, user_fs, rapportfs, rapportfs_ligne};
 }
 
+function base64ToBytes(base64: string): Uint8Array {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+}
+
 // Prompts for a save location, then writes a .utglfs (Parquet-format) file
 // containing this rapportfs's snapshot. Returns the destination path, or
 // null if the user cancelled the save dialog.
+//
+// The Parquet bytes are built in Rust (see export_utglfs.rs) but the actual
+// disk write happens here via @tauri-apps/plugin-fs's writeFile, not in Rust
+// — on Android/iOS, the path the save dialog returns is a content:// SAF URI,
+// not a real filesystem path, and plain std::fs can't write to that. The fs
+// plugin knows how to handle both real paths and SAF URIs.
 export async function exportRapportFsToUtglfs(rapportfsId: string, suggestedName: string): Promise<string | null> {
     const dest = await save({
         title: "Exporter le rapport",
@@ -130,6 +144,7 @@ export async function exportRapportFsToUtglfs(rapportfsId: string, suggestedName
     if (!dest) return null;
 
     const payload = await buildExportPayload(rapportfsId);
-    await invoke("export_utglfs", {dest, payload});
+    const base64 = await invoke<string>("export_utglfs", {payload});
+    await writeFile(dest, base64ToBytes(base64));
     return dest;
 }

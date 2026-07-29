@@ -14,11 +14,13 @@ import {deleteRapportFs, listRapportFs, markRapportFsExported} from "../services
 import {computeRollingCmm} from "../services/rapport-cmm-service.ts";
 import {exportRapportFsToUtglfs} from "../services/rapportfs-export-service.ts";
 import type {RapportFs} from "../model/rapport-model.ts";
+import {useNotification} from "../../../notifications/notification-provider.tsx";
 
 const emptySelection: GridRowSelectionModel = {type: "include", ids: new Set()};
 
 function RapportTableList() {
     const navigate = useNavigate();
+    const {notifySuccess, notifyError} = useNotification();
     const [addOpen, setAddOpen] = useState(false);
     const [rows, setRows] = useState<RapportFs[]>([]);
     const [loading, setLoading] = useState(true);
@@ -59,9 +61,14 @@ function RapportTableList() {
     const handleDelete = async () => {
         if (!selectedRow) return;
         if (!window.confirm("Supprimer ce rapport FS ?")) return;
-        await deleteRapportFs(selectedRow.id);
-        setSelectionModel(emptySelection);
-        await loadRows();
+        try {
+            await deleteRapportFs(selectedRow.id);
+            setSelectionModel(emptySelection);
+            await loadRows();
+            notifySuccess("Rapport supprimé.");
+        } catch (err) {
+            notifyError(err instanceof Error ? err.message : String(err));
+        }
     };
 
     const handleExport = async () => {

@@ -13,6 +13,7 @@ import type {MyOrganisationUnit} from "../../organisation-units/organisation-uni
 import {getMyOrganisationUnit} from "../../organisation-units/organisation-units-service.ts";
 import {createRapportFs, listRapportFs} from "../services/rapportfs-service.ts";
 import {computeRollingCmm} from "../services/rapport-cmm-service.ts";
+import {useNotification} from "../../../notifications/notification-provider.tsx";
 
 interface RapportfsAddSheetProps {
     open: boolean;
@@ -21,6 +22,7 @@ interface RapportfsAddSheetProps {
 
 export default function RapportfsAddSheet({open, onClose}: RapportfsAddSheetProps) {
     const navigate = useNavigate();
+    const {notifySuccess} = useNotification();
     const [loading, setLoading] = useState(true);
     const [orgUnit, setOrgUnit] = useState<MyOrganisationUnit | null>(null);
     const [moisAnnee, setMoisAnnee] = useState("");
@@ -49,6 +51,7 @@ export default function RapportfsAddSheet({open, onClose}: RapportfsAddSheetProp
             // If this is the 4th consecutive month, fill in CMM/CMMA right
             // away rather than waiting for the next list-page visit.
             await computeRollingCmm(await listRapportFs());
+            notifySuccess("Rapport créé.");
             onClose();
             navigate(`/rapport-view/${id}`);
         } catch (err) {

@@ -38,6 +38,7 @@ import {getDetailSdu, saveDetailSdu, saveRapportFsLigne} from "../services/rappo
 import {refreshRapportFsStatus} from "../services/rapportfs-service.ts";
 import {generateUuid} from "../../../services/id-service.ts";
 import {formatMoisAnnee} from "../../../utils/date-format.ts";
+import {useNotification} from "../../../notifications/notification-provider.tsx";
 // Accent rule: for the "movement" quantities, filled-in data is olive, blanks
 // are red (draws the eye to missing entries); the derived/computed fields
 // (stock, SDU, ecart, CMM, CMMA, MSD) always get the teal accent regardless of data.
@@ -514,6 +515,7 @@ function EditLigneDialog({
                              previousSduFinMois,
                              onSaved
                          }: EditLigneDialogProps) {
+    const {notifySuccess} = useNotification();
     const [form, setForm] = useState<FormState>(() => ligneToFormState(ligne, previousSduFinMois));
     const [observation, setObservation] = useState(() => ligne?.observation ?? "");
     const [sduRows, setSduRows] = useState<EditableSduRow[]>([]);
@@ -569,6 +571,7 @@ function EditLigneDialog({
             const savedSdu = await getDetailSdu(newLigneId);
             await refreshRapportFsStatus(rapportfsId);
             onSaved(newLigne, newLigneId, savedSdu);
+            notifySuccess("Ligne enregistrée.");
             onClose();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
