@@ -1,6 +1,6 @@
 import {getDb} from "../../../services/db.ts";
 import {generateUuid} from "../../../services/id-service.ts";
-import type {RapportPhagdis} from "../model/rapport-model.ts";
+import type {RapportHopitaux} from "../model/rapport-model.ts";
 import {refreshRapportFsStatus} from "./rapportfs-service.ts";
 import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
 
@@ -96,8 +96,8 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
 // consecutive month gets its CMM as soon as it exists rather than only after
 // the next list-page visit. Returns the ids of rapportfs whose lines were
 // touched, so callers can refresh their derived "status".
-export async function computeRollingCmm(reports: RapportPhagdis[]): Promise<string[]> {
-    const byFs = new Map<string, RapportPhagdis[]>();
+export async function computeRollingCmm(reports: RapportHopitaux[]): Promise<string[]> {
+    const byFs = new Map<string, RapportHopitaux[]>();
     for (const report of reports) {
         const list = byFs.get(report.sdsp_id) ?? [];
         list.push(report);
@@ -106,7 +106,7 @@ export async function computeRollingCmm(reports: RapportPhagdis[]): Promise<stri
 
     const touchedIds: string[] = [];
     for (const list of byFs.values()) {
-        const byMonth = new Map<string, RapportPhagdis>();
+        const byMonth = new Map<string, RapportHopitaux>();
         for (const report of list) {
             const ym = parseMoisAnnee(report.mois_annee);
             if (!ym) continue;

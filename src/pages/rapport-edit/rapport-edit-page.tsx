@@ -1,8 +1,8 @@
 import {useParams} from "react-router-dom";
-import type {RapportPhagdis} from "../../features/rapports/model/rapport-model.ts";
+import type {RapportHopitaux} from "../../features/rapports/model/rapport-model.ts";
 
 export default function RapportEditPage() {
-    const {id} = useParams<{ id: RapportPhagdis["id"] }>();
+    const {id} = useParams<{ id: RapportHopitaux["id"] }>();
 
     return (
         <div>

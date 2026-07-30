@@ -2,12 +2,12 @@ import {DataGrid, GridColDef, GridRowSelectionModel} from "@mui/x-data-grid";
 import Paper from "@mui/material/Paper";
 import Chip from "@mui/material/Chip";
 import Alert from "@mui/material/Alert";
-import type {RapportPhagdis} from "../model/rapport-model.ts";
+import type {RapportHopitaux} from "../model/rapport-model.ts";
 import {formatDate, formatMoisAnnee} from "../../../utils/date-format.ts";
 import {completenessStyle} from "../styles/completeness-style.ts";
 
 interface RapportfsTableProps {
-    rows: RapportPhagdis[];
+    rows: RapportHopitaux[];
     loading: boolean;
     error: string | null;
     selectionModel: GridRowSelectionModel;

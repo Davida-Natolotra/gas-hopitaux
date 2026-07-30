@@ -1,10 +1,11 @@
 import type {userFS} from "../../userprofile/models/user-interface.ts"
 
-export interface RapportPhaGDisLigne {
+export interface RapportHopitauxLigne {
     produit_programme_niveau_id: string;
     qte_dispo_deb_mois: number | null;
     qte_rec_mois: number | null;
-    qte_dist_csb: number | null;
+    qte_dist_patient: number | null;
+    qte_dist_ac: number | null;
     qte_perime_avarie_mois: number | null;
     qte_redepl_mois: number | null;
     nb_jour_rupture: number | null;
@@ -25,7 +26,7 @@ export interface DetailSDU {
     date_peremption: string | null;
 }
 
-export interface RapportPhagdis {
+export interface RapportHopitaux {
     id: string;
     name: string;
     sdsp_id: string;
@@ -36,6 +37,6 @@ export interface RapportPhagdis {
     // null until someone (this device's user_fs profile) has actually saved
     // a line on this rapport.
     edited_by: userFS | null;
-    rapportfsLigne: RapportPhaGDisLigne[];
+    rapportfsLigne: RapportHopitauxLigne[];
 }
 

@@ -11,7 +11,7 @@ import Container from '@mui/material/Container';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
 import {Link as RouterLink, useLocation} from 'react-router-dom';
-import logo from '../../assets/Logo_DPLMT.svg';
+import logo from '../../assets/gas_hopitaux.svg';
 
 const pages = [
     {label: 'Alertes', path: '/alertes'},

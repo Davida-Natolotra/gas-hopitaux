@@ -11,7 +11,7 @@ import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemText from "@mui/material/ListItemText";
 import Divider from "@mui/material/Divider";
-import type {RapportPhagdis} from "../../rapports/model/rapport-model.ts";
+import type {RapportHopitaux} from "../../rapports/model/rapport-model.ts";
 import {SITUATION_STYLES} from "../../rapports/styles/situation-style.ts";
 import type {AlerteProduit, AlertesProgrammeSection} from "../services/alertes-service.ts";
 import {getAlertesSections, getLatestRapportFs} from "../services/alertes-service.ts";
@@ -66,7 +66,7 @@ function AlerteBloc({severity, label, count, total, produits}: {
 export default function AlertesView() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [rapport, setRapport] = useState<RapportPhagdis | null>(null);
+    const [rapport, setRapport] = useState<RapportHopitaux | null>(null);
     const [sections, setSections] = useState<AlertesProgrammeSection[]>([]);
     const [tab, setTab] = useState(0);
 

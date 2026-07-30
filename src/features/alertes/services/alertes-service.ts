@@ -1,4 +1,4 @@
-import type {RapportPhagdis} from "../../rapports/model/rapport-model.ts";
+import type {RapportHopitaux} from "../../rapports/model/rapport-model.ts";
 import {listRapportFs} from "../../rapports/services/rapportfs-service.ts";
 import {getProgrammeSections} from "../../rapports/services/rapport-view-service.ts";
 import {getMyOrganisationUnit} from "../../organisation-units/organisation-units-service.ts";
@@ -21,12 +21,12 @@ export interface AlertesProgrammeSection {
 // The rapportfs (for the saved FS) whose mois_annee is the most recent —
 // mois_annee mixes "YYYY-MM" and "YYYY-MM-DD" across rows (see mois-annee.ts),
 // so months are compared numerically rather than by raw string sort.
-export async function getLatestRapportFs(): Promise<RapportPhagdis | null> {
+export async function getLatestRapportFs(): Promise<RapportHopitaux | null> {
     const orgUnit = await getMyOrganisationUnit();
     if (!orgUnit) return null;
 
     const all = await listRapportFs();
-    let latest: RapportPhagdis | null = null;
+    let latest: RapportHopitaux | null = null;
     let latestRank = -Infinity;
     for (const report of all) {
         if (report.sdsp_id !== orgUnit.fs.id) continue;

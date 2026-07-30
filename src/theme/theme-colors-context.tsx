@@ -15,8 +15,8 @@ export interface ThemeColors {
 }
 
 export const defaultThemeColors: ThemeColors = {
-    primary: "#588509",
-    secondary: "#9b49e3",
+    primary: "#5f831f",
+    secondary: "#2c7298",
     accent: "#ff9800",
 };
 

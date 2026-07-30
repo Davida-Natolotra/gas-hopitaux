@@ -1,6 +1,6 @@
 import {getDb} from "../../../services/db.ts";
 import {generateUuid} from "../../../services/id-service.ts";
-import type {DetailSDU, RapportPhaGDisLigne} from "../model/rapport-model.ts";
+import type {DetailSDU, RapportHopitauxLigne} from "../model/rapport-model.ts";
 import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
 
 export interface RapportViewRow {
@@ -8,7 +8,7 @@ export interface RapportViewRow {
     produitName: string;
     unit: string;
     ligneId: string | null;
-    ligne: RapportPhaGDisLigne | null;
+    ligne: RapportHopitauxLigne | null;
     // sdu_fin_mois of the same produit from the previous consecutive month's
     // rapportfs (same fs_id), when one exists. Used to default the new
     // month's qte_dispo_deb_mois when this produit hasn't been reported yet.
@@ -46,7 +46,7 @@ interface RapportViewQueryRow {
     prev_sdu_fin_mois: number | null;
 }
 
-function toLigne(row: RapportViewQueryRow): RapportPhaGDisLigne | null {
+function toLigne(row: RapportViewQueryRow): RapportHopitauxLigne | null {
     if (!row.ligne_id) return null;
     return {
         produit_programme_niveau_id: row.ppn_id,
@@ -177,7 +177,7 @@ export async function getDetailSdu(rapportfsLigneId: string): Promise<DetailSDU[
 export async function saveRapportFsLigne(
     rapportfsId: string,
     produitProgrammeNiveauId: string,
-    ligne: RapportPhaGDisLigne,
+    ligne: RapportHopitauxLigne,
 ): Promise<string> {
     const db = await getDb();
     const rows = await db.select<{ id: string }[]>(

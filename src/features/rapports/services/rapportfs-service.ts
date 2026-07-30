@@ -1,7 +1,7 @@
 import {getDb} from "../../../services/db.ts";
 import {generateUuid} from "../../../services/id-service.ts";
 import {formatMoisAnnee} from "../../../utils/date-format.ts";
-import type {RapportPhagdis} from "../model/rapport-model.ts";
+import type {RapportHopitaux} from "../model/rapport-model.ts";
 import {MANDATORY_LIGNE_FIELDS} from "../model/rapport-completeness.ts";
 
 interface RapportfsRow {
@@ -35,7 +35,7 @@ const EDITED_BY_SELECT = `
          FROM rapportfs r
                   LEFT JOIN user_fs eb ON eb.id = r.edited_by`;
 
-function toRapportFs(row: RapportfsRow): RapportPhagdis {
+function toRapportFs(row: RapportfsRow): RapportHopitaux {
     return {
         id: row.id,
         name: row.name,
@@ -57,7 +57,7 @@ function toRapportFs(row: RapportfsRow): RapportPhagdis {
     };
 }
 
-export async function listRapportFs(): Promise<RapportPhagdis[]> {
+export async function listRapportFs(): Promise<RapportHopitaux[]> {
     const db = await getDb();
     const rows = await db.select<RapportfsRow[]>(
         `SELECT ${EDITED_BY_SELECT}
@@ -73,7 +73,7 @@ export async function hasAnyRapportFs(): Promise<boolean> {
     return rows.length > 0;
 }
 
-export async function getRapportFsById(id: string): Promise<RapportPhagdis | null> {
+export async function getRapportFsById(id: string): Promise<RapportHopitaux | null> {
     const db = await getDb();
     const rows = await db.select<RapportfsRow[]>(
         `SELECT ${EDITED_BY_SELECT}

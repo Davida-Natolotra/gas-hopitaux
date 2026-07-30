@@ -29,7 +29,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import RemoveIcon from "@mui/icons-material/Remove";
 import {DatePicker} from "@mui/x-date-pickers/DatePicker";
 import dayjs, {type Dayjs} from "dayjs";
-import type {DetailSDU, RapportPhaGDisLigne} from "../model/rapport-model.ts";
+import type {DetailSDU, RapportHopitauxLigne} from "../model/rapport-model.ts";
 import {isLigneComplete} from "../model/rapport-completeness.ts";
 import {COMPLETENESS_STYLES, completenessStyle} from "../styles/completeness-style.ts";
 import {situationStyle} from "../styles/situation-style.ts";
@@ -91,7 +91,7 @@ const FIELD_ROWS: FieldDef[][] = [
     ],
     [
         {key: "ecart", label: "Ecart", kind: "computed", derived: true},
-        {key: "cmm", label: "CMM", kind: "computed"},
+        {key: "cmm", label: "CMM", kind: "conditional"},
         {key: "cmma", label: "CMMA", kind: "computed", derived: true},
     ],
     [
@@ -126,7 +126,7 @@ function FieldGrid({
                        detailSdu,
                        loadingSdu,
                    }: {
-    ligne: RapportPhaGDisLigne | null;
+    ligne: RapportHopitauxLigne | null;
     detailSdu: DetailSDU[] | null;
     loadingSdu: boolean;
 }) {
@@ -198,7 +198,7 @@ type FormState = Record<NumericFieldKey, string>;
 // rolling-CMM auto-fill created it (cmm/cmma set, nothing else) — it
 // defaults to the previous consecutive month's sdu_fin_mois for the same
 // produit (editable, not persisted until the user saves).
-function ligneToFormState(ligne: RapportPhaGDisLigne | null, previousSduFinMois: number | null): FormState {
+function ligneToFormState(ligne: RapportHopitauxLigne | null, previousSduFinMois: number | null): FormState {
     const str = (value: number | null | undefined) => (value === null || value === undefined ? "" : String(value));
     return {
         qte_dispo_deb_mois: ligne?.qte_dispo_deb_mois != null ? str(ligne.qte_dispo_deb_mois) : str(previousSduFinMois),
@@ -264,8 +264,8 @@ function formStateToLigne(
     form: FormState,
     computed: ComputedValues,
     observation: string,
-    existing: RapportPhaGDisLigne | null,
-): RapportPhaGDisLigne {
+    existing: RapportHopitauxLigne | null,
+): RapportHopitauxLigne {
     const num = (value: string) => (value.trim() === "" ? null : Number(value));
     return {
         produit_programme_niveau_id: ppnId,
@@ -437,8 +437,8 @@ function SduDetailsEditor({
                 <Typography variant="subtitle2" color="text.secondary">
                     Détails SDU
                 </Typography>
-                <Button variant="outlined" size="small" onClick={onAdd}>
-                    + SDU
+                <Button variant="outlined" color="warning" size="small" onClick={onAdd}>
+                    <strong>+ Ajouter SDU</strong>
                 </Button>
             </Stack>
             <Stack spacing={1.5}>
@@ -479,10 +479,10 @@ interface EditLigneDialogProps {
     unit: string;
     ppnId: string;
     rapportfsId: string;
-    ligne: RapportPhaGDisLigne | null;
+    ligne: RapportHopitauxLigne | null;
     ligneId: string | null;
     previousSduFinMois: number | null;
-    onSaved: (ligne: RapportPhaGDisLigne, ligneId: string, detailSdu: DetailSDU[]) => void;
+    onSaved: (ligne: RapportHopitauxLigne, ligneId: string, detailSdu: DetailSDU[]) => void;
 }
 
 function EditLigneDialog({
@@ -612,13 +612,14 @@ function EditLigneDialog({
                     </Alert>
                 )}
             </DialogContent>
-            <DialogActions>
-                <Button onClick={onClose} disabled={saving}>
-                    Annuler
-                </Button>
-                <Button variant="contained" onClick={handleSave} disabled={saving}>
-                    {saving ? <CircularProgress size={20} color="inherit"/> : "Enregistrer"}
-                </Button>
+            <DialogActions sx={{px: 3, pb: 2}}>
+                <Stack direction="row" spacing={1.5}>
+                    <Button onClick={onClose} disabled={saving}>
+                        Annuler
+                    </Button>
+                    <Button variant="contained" onClick={handleSave} disabled={saving}>
+                        {saving ? <CircularProgress size={20} color="inherit"/> : "Enregistrer"}
+                    </Button></Stack>
             </DialogActions>
         </Dialog>
     );
@@ -647,7 +648,7 @@ function ProduitRow({row, rapportfsId}: { row: RapportViewRow; rapportfsId: stri
         }
     };
 
-    const handleSaved = (newLigne: RapportPhaGDisLigne, newLigneId: string, newDetailSdu: DetailSDU[]) => {
+    const handleSaved = (newLigne: RapportHopitauxLigne, newLigneId: string, newDetailSdu: DetailSDU[]) => {
         setLigne(newLigne);
         setLigneId(newLigneId);
         setDetailSdu(newDetailSdu);

@@ -164,15 +164,15 @@ export default function OrganisationUnitCascade() {
                     isOptionEqualToValue={sameUnit}
                     onChange={(_, value) => handleFsChange(value)}
                     renderInput={(params) => (
-                        <TextField {...params} label="Formation sanitaire *"
-                                   placeholder="Sélectionner votre formation sanitaire"/>
+                        <TextField {...params} label="Hôpital *"
+                                   placeholder="Sélectionner votre hôpital"/>
                     )}
-                    noOptionsText={sdsp ? "Aucune formation sanitaire trouvée pour ce district." : "Veuillez choisir un district en premier."}
+                    noOptionsText={sdsp ? "Aucun hôpital trouvée pour ce district." : "Veuillez choisir un district en premier."}
                 />
             </Stack>
 
             {error && <Alert severity="error">{error}</Alert>}
-            {saved && <Alert severity="success">Unité d'organisation enregistrée.</Alert>}
+            {saved && <Alert severity="success">Hopital enregistrée.</Alert>}
 
             <Stack direction="row" spacing={2}>
                 <Button variant="contained" disabled={!canSave || saving} onClick={handleSave}>
