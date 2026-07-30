@@ -3,6 +3,10 @@ import {createContext, useContext, useMemo, useState} from "react";
 import {createTheme, CssBaseline, ThemeProvider} from "@mui/material";
 import {frFR} from "@mui/material/locale";
 import {frFR as dataGridFrFR} from "@mui/x-data-grid/locales";
+import {frFR as datePickersFrFR} from "@mui/x-date-pickers/locales";
+import {LocalizationProvider} from "@mui/x-date-pickers/LocalizationProvider";
+import {AdapterDayjs} from "@mui/x-date-pickers/AdapterDayjs";
+import "dayjs/locale/fr";
 
 export interface ThemeColors {
     primary: string;
@@ -11,8 +15,8 @@ export interface ThemeColors {
 }
 
 export const defaultThemeColors: ThemeColors = {
-    primary: "#778137",
-    secondary: "#9c27b0",
+    primary: "#588509",
+    secondary: "#9b49e3",
     accent: "#ff9800",
 };
 
@@ -48,6 +52,7 @@ export function AppThemeProvider({children}: { children: ReactNode }) {
                 },
                 frFR,
                 dataGridFrFR,
+                datePickersFrFR,
             ),
         [colors],
     );
@@ -56,7 +61,9 @@ export function AppThemeProvider({children}: { children: ReactNode }) {
         <ThemeColorsContext.Provider value={{colors, setThemeColor, setThemeColors, resetThemeColors}}>
             <ThemeProvider theme={theme}>
                 <CssBaseline/>
-                {children}
+                <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="fr">
+                    {children}
+                </LocalizationProvider>
             </ThemeProvider>
         </ThemeColorsContext.Provider>
     );

@@ -13,7 +13,7 @@ import RapportfsAddSheet from "./rapportfs-add-sheet.tsx";
 import {deleteRapportFs, listRapportFs, markRapportFsExported} from "../services/rapportfs-service.ts";
 import {computeRollingCmm} from "../services/rapport-cmm-service.ts";
 import {exportRapportFsToUtglfs} from "../services/rapportfs-export-service.ts";
-import type {RapportFs} from "../model/rapport-model.ts";
+import type {RapportPhagdis} from "../model/rapport-model.ts";
 import {useNotification} from "../../../notifications/notification-provider.tsx";
 
 const emptySelection: GridRowSelectionModel = {type: "include", ids: new Set()};
@@ -22,7 +22,7 @@ function RapportTableList() {
     const navigate = useNavigate();
     const {notifySuccess, notifyError} = useNotification();
     const [addOpen, setAddOpen] = useState(false);
-    const [rows, setRows] = useState<RapportFs[]>([]);
+    const [rows, setRows] = useState<RapportPhagdis[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectionModel, setSelectionModel] = useState<GridRowSelectionModel>(emptySelection);

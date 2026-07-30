@@ -63,7 +63,7 @@ export default function OrganisationUnitCascade() {
         const list: OrganisationUnit[] = [];
         for (const c of communeOptions) {
             for (const u of allUnits) {
-                if (u.level === 5 && u.parent_id === c.id) {
+                if (u.level === 5 && u.parent_id === c.id && u.name.includes("CH") && !u.name.includes("CHRD1")) {
                     names.set(u.id, c.name);
                     list.push(u);
                 }
@@ -164,7 +164,8 @@ export default function OrganisationUnitCascade() {
                     isOptionEqualToValue={sameUnit}
                     onChange={(_, value) => handleFsChange(value)}
                     renderInput={(params) => (
-                        <TextField {...params} label="Formation sanitaire *" placeholder="Sélectionner votre formation sanitaire"/>
+                        <TextField {...params} label="Formation sanitaire *"
+                                   placeholder="Sélectionner votre formation sanitaire"/>
                     )}
                     noOptionsText={sdsp ? "Aucune formation sanitaire trouvée pour ce district." : "Veuillez choisir un district en premier."}
                 />

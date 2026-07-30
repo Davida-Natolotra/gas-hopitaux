@@ -10,7 +10,7 @@ import IconButton from "@mui/material/IconButton";
 import Fab from "@mui/material/Fab";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import type {RapportFs} from "../../features/rapports/model/rapport-model.ts";
+import type {RapportPhagdis} from "../../features/rapports/model/rapport-model.ts";
 import {getRapportFsById} from "../../features/rapports/services/rapportfs-service.ts";
 import type {ProgrammeSection} from "../../features/rapports/services/rapport-view-service.ts";
 import {getProgrammeSections} from "../../features/rapports/services/rapport-view-service.ts";
@@ -18,10 +18,10 @@ import RapportProgrammeTable from "../../features/rapports/components/rapport-pr
 import {formatMoisAnnee} from "../../utils/date-format.ts";
 
 export default function RapportViewPage() {
-    const {id} = useParams<{ id: RapportFs["id"] }>();
+    const {id} = useParams<{ id: RapportPhagdis["id"] }>();
     const navigate = useNavigate();
 
-    const [rapport, setRapport] = useState<RapportFs | null>(null);
+    const [rapport, setRapport] = useState<RapportPhagdis | null>(null);
     const [sections, setSections] = useState<ProgrammeSection[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);

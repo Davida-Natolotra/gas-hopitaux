@@ -3,7 +3,7 @@ import {save} from "@tauri-apps/plugin-dialog";
 import {writeFile} from "@tauri-apps/plugin-fs";
 import {getDb} from "../../../services/db.ts";
 
-const UTGLFS_FILTERS = [{name: "Export UTGL FS", extensions: ["utglfs"]}];
+const UTGLFS_FILTERS = [{name: "Export UTGL FS", extensions: ["utglhp"]}];
 
 interface MyProduitProgrammeNiveauRow {
     id: string;
@@ -126,7 +126,7 @@ function base64ToBytes(base64: string): Uint8Array {
     return bytes;
 }
 
-// Prompts for a save location, then writes a .utglfs (Parquet-format) file
+// Prompts for a save location, then writes a .utglhp (Parquet-format) file
 // containing this rapportfs's snapshot. Returns the destination path, or
 // null if the user cancelled the save dialog.
 //
@@ -138,7 +138,7 @@ function base64ToBytes(base64: string): Uint8Array {
 export async function exportRapportFsToUtglfs(rapportfsId: string, suggestedName: string): Promise<string | null> {
     const dest = await save({
         title: "Exporter le rapport",
-        defaultPath: `${suggestedName}.utglfs`,
+        defaultPath: `${suggestedName}.utglhp`,
         filters: UTGLFS_FILTERS,
     });
     if (!dest) return null;

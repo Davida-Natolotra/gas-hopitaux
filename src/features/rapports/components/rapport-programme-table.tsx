@@ -1,5 +1,5 @@
 import type {ReactNode} from "react";
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useState} from "react";
 import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Grid from "@mui/material/Grid";
@@ -13,7 +13,6 @@ import Paper from "@mui/material/Paper";
 import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
 import IconButton from "@mui/material/IconButton";
-import InputAdornment from "@mui/material/InputAdornment";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
 import TextField from "@mui/material/TextField";
@@ -28,8 +27,9 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import EditIcon from "@mui/icons-material/Edit";
 import RemoveIcon from "@mui/icons-material/Remove";
-import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
-import type {DetailSDU, RapportFsLigne} from "../model/rapport-model.ts";
+import {DatePicker} from "@mui/x-date-pickers/DatePicker";
+import dayjs, {type Dayjs} from "dayjs";
+import type {DetailSDU, RapportPhaGDisLigne} from "../model/rapport-model.ts";
 import {isLigneComplete} from "../model/rapport-completeness.ts";
 import {COMPLETENESS_STYLES, completenessStyle} from "../styles/completeness-style.ts";
 import {situationStyle} from "../styles/situation-style.ts";
@@ -126,7 +126,7 @@ function FieldGrid({
                        detailSdu,
                        loadingSdu,
                    }: {
-    ligne: RapportFsLigne | null;
+    ligne: RapportPhaGDisLigne | null;
     detailSdu: DetailSDU[] | null;
     loadingSdu: boolean;
 }) {
@@ -198,7 +198,7 @@ type FormState = Record<NumericFieldKey, string>;
 // rolling-CMM auto-fill created it (cmm/cmma set, nothing else) — it
 // defaults to the previous consecutive month's sdu_fin_mois for the same
 // produit (editable, not persisted until the user saves).
-function ligneToFormState(ligne: RapportFsLigne | null, previousSduFinMois: number | null): FormState {
+function ligneToFormState(ligne: RapportPhaGDisLigne | null, previousSduFinMois: number | null): FormState {
     const str = (value: number | null | undefined) => (value === null || value === undefined ? "" : String(value));
     return {
         qte_dispo_deb_mois: ligne?.qte_dispo_deb_mois != null ? str(ligne.qte_dispo_deb_mois) : str(previousSduFinMois),
@@ -264,8 +264,8 @@ function formStateToLigne(
     form: FormState,
     computed: ComputedValues,
     observation: string,
-    existing: RapportFsLigne | null,
-): RapportFsLigne {
+    existing: RapportPhaGDisLigne | null,
+): RapportPhaGDisLigne {
     const num = (value: string) => (value.trim() === "" ? null : Number(value));
     return {
         produit_programme_niveau_id: ppnId,
@@ -394,46 +394,28 @@ function detailSduToRows(entries: DetailSDU[]): EditableSduRow[] {
     return entries.map((d) => ({key: d.id, sdu: String(d.sdu), date_peremption: toMonthInputValue(d.date_peremption)}));
 }
 
-// A plain type="month" input shows the browser's native indicator, which
-// renders as a plain dropdown chevron rather than a calendar icon. Hide it
-// and show a calendar-month icon instead, wired to the input's own picker.
 function SduMonthField({value, error, helperText, onChange}: {
     value: string;
     error: boolean;
     helperText?: string;
     onChange: (value: string) => void;
 }) {
-    const inputRef = useRef<HTMLInputElement>(null);
     return (
-        <TextField
-            variant="standard"
+        <DatePicker
             label="Date de péremption"
-            type="month"
-            fullWidth
-            required
-            error={error}
-            helperText={helperText}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            inputRef={inputRef}
+            views={["year", "month"]}
+            format="MM/YYYY"
+            value={value ? dayjs(value, "YYYY-MM") : null}
+            onChange={(newValue: Dayjs | null) => onChange(newValue?.isValid() ? newValue.format("YYYY-MM") : "")}
             slotProps={{
-                inputLabel: {shrink: true},
-                input: {
-                    endAdornment: (
-                        <InputAdornment position="end">
-                            <IconButton
-                                size="small"
-                                edge="end"
-                                aria-label="Choisir le mois de péremption"
-                                onClick={() => inputRef.current?.showPicker?.()}
-                            >
-                                <CalendarMonthIcon fontSize="small"/>
-                            </IconButton>
-                        </InputAdornment>
-                    ),
+                textField: {
+                    variant: "standard",
+                    fullWidth: true,
+                    required: true,
+                    error,
+                    helperText,
                 },
             }}
-            sx={{"& input[type='month']::-webkit-calendar-picker-indicator": {display: "none"}}}
         />
     );
 }
@@ -497,10 +479,10 @@ interface EditLigneDialogProps {
     unit: string;
     ppnId: string;
     rapportfsId: string;
-    ligne: RapportFsLigne | null;
+    ligne: RapportPhaGDisLigne | null;
     ligneId: string | null;
     previousSduFinMois: number | null;
-    onSaved: (ligne: RapportFsLigne, ligneId: string, detailSdu: DetailSDU[]) => void;
+    onSaved: (ligne: RapportPhaGDisLigne, ligneId: string, detailSdu: DetailSDU[]) => void;
 }
 
 function EditLigneDialog({
@@ -665,7 +647,7 @@ function ProduitRow({row, rapportfsId}: { row: RapportViewRow; rapportfsId: stri
         }
     };
 
-    const handleSaved = (newLigne: RapportFsLigne, newLigneId: string, newDetailSdu: DetailSDU[]) => {
+    const handleSaved = (newLigne: RapportPhaGDisLigne, newLigneId: string, newDetailSdu: DetailSDU[]) => {
         setLigne(newLigne);
         setLigneId(newLigneId);
         setDetailSdu(newDetailSdu);

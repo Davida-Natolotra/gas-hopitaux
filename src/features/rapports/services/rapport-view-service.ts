@@ -1,6 +1,6 @@
 import {getDb} from "../../../services/db.ts";
 import {generateUuid} from "../../../services/id-service.ts";
-import type {DetailSDU, RapportFsLigne} from "../model/rapport-model.ts";
+import type {DetailSDU, RapportPhaGDisLigne} from "../model/rapport-model.ts";
 import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
 
 export interface RapportViewRow {
@@ -8,7 +8,7 @@ export interface RapportViewRow {
     produitName: string;
     unit: string;
     ligneId: string | null;
-    ligne: RapportFsLigne | null;
+    ligne: RapportPhaGDisLigne | null;
     // sdu_fin_mois of the same produit from the previous consecutive month's
     // rapportfs (same fs_id), when one exists. Used to default the new
     // month's qte_dispo_deb_mois when this produit hasn't been reported yet.
@@ -46,7 +46,7 @@ interface RapportViewQueryRow {
     prev_sdu_fin_mois: number | null;
 }
 
-function toLigne(row: RapportViewQueryRow): RapportFsLigne | null {
+function toLigne(row: RapportViewQueryRow): RapportPhaGDisLigne | null {
     if (!row.ligne_id) return null;
     return {
         produit_programme_niveau_id: row.ppn_id,
@@ -74,7 +74,9 @@ function toLigne(row: RapportViewQueryRow): RapportFsLigne | null {
 async function findPreviousConsecutiveRapportfsId(rapportfsId: string): Promise<string | null> {
     const db = await getDb();
     const current = await db.select<{ mois_annee: string | null; fs_id: string }[]>(
-        `SELECT mois_annee, fs_id FROM rapportfs WHERE id = $1`,
+        `SELECT mois_annee, fs_id
+         FROM rapportfs
+         WHERE id = $1`,
         [rapportfsId],
     );
     const ym = parseMoisAnnee(current[0]?.mois_annee ?? null);
@@ -82,7 +84,10 @@ async function findPreviousConsecutiveRapportfsId(rapportfsId: string): Promise<
     const previousKey = monthKey(shiftMonths(ym, -1));
 
     const candidates = await db.select<{ id: string; mois_annee: string | null }[]>(
-        `SELECT id, mois_annee FROM rapportfs WHERE fs_id = $1 AND id != $2`,
+        `SELECT id, mois_annee
+         FROM rapportfs
+         WHERE fs_id = $1
+           AND id != $2`,
         [current[0].fs_id, rapportfsId],
     );
     const match = candidates.find((c) => {
@@ -172,7 +177,7 @@ export async function getDetailSdu(rapportfsLigneId: string): Promise<DetailSDU[
 export async function saveRapportFsLigne(
     rapportfsId: string,
     produitProgrammeNiveauId: string,
-    ligne: RapportFsLigne,
+    ligne: RapportPhaGDisLigne,
 ): Promise<string> {
     const db = await getDb();
     const rows = await db.select<{ id: string }[]>(

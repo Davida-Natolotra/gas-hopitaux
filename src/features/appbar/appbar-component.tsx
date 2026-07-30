@@ -40,7 +40,6 @@ function ResponsiveAppBar() {
     return (
         <Box sx={{position: 'sticky', top: 0, zIndex: (theme) => theme.zIndex.appBar}}>
             {/* Opaque strip covering the gap above the bar, so scrolled content can't peek through it. */}
-            <Box sx={{height: '20px', bgcolor: 'common.white'}}/>
             <AppBar position="static">
                 <Container maxWidth="xl">
                     <Toolbar disableGutters>
@@ -65,7 +64,7 @@ function ResponsiveAppBar() {
                                     letterSpacing: '.05rem',
                                 }}
                             >
-                                GAS FS
+                                GAS Hôpitaux
                             </Typography>
                         </Box>
 

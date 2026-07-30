@@ -9,6 +9,8 @@ import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
+import {DatePicker} from "@mui/x-date-pickers/DatePicker";
+import dayjs, {type Dayjs} from "dayjs";
 import type {MyOrganisationUnit} from "../../organisation-units/organisation-unit-model.ts";
 import {getMyOrganisationUnit} from "../../organisation-units/organisation-units-service.ts";
 import {createRapportFs, listRapportFs} from "../services/rapportfs-service.ts";
@@ -79,13 +81,15 @@ export default function RapportfsAddSheet({open, onClose}: RapportfsAddSheetProp
                             slotProps={{input: {readOnly: true}}}
                             fullWidth
                         />
-                        <TextField
+                        <DatePicker
                             label="Mois / Année"
-                            type="month"
-                            value={moisAnnee}
-                            onChange={(e) => setMoisAnnee(e.target.value)}
-                            slotProps={{inputLabel: {shrink: true}}}
-                            fullWidth
+                            views={["year", "month"]}
+                            format="MM/YYYY"
+                            value={moisAnnee ? dayjs(moisAnnee, "YYYY-MM") : null}
+                            onChange={(newValue: Dayjs | null) =>
+                                setMoisAnnee(newValue?.isValid() ? newValue.format("YYYY-MM") : "")
+                            }
+                            slotProps={{textField: {fullWidth: true}}}
                         />
                         {createError && <Alert severity="error">{createError}</Alert>}
                     </Box>
