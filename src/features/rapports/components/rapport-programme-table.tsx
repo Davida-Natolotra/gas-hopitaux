@@ -50,7 +50,6 @@ type NumericFieldKey =
     | "qte_dispo_deb_mois"
     | "qte_rec_mois"
     | "qte_dist_patient"
-    | "qte_dist_ac"
     | "qte_perime_avarie_mois"
     | "qte_redepl_mois"
     | "nb_jour_rupture"
@@ -72,7 +71,9 @@ interface FieldDef {
 }
 
 // Single source of truth for the field layout, shared by the read-only
-// display grid and the edit dialog's form.
+// display grid and the edit dialog's form. Twelve fields laid out as four
+// full rows of three (each Grid size={4}); Observation gets its own
+// full-width row below them.
 const FIELD_ROWS: FieldDef[][] = [
     [
         {key: "qte_dispo_deb_mois", label: "Quantité disponible au début du mois", kind: "conditional"},
@@ -80,21 +81,18 @@ const FIELD_ROWS: FieldDef[][] = [
         {key: "qte_dist_patient", label: "Quantité distribuée aux patients au cours du mois", kind: "conditional"},
     ],
     [
-        {key: "qte_dist_ac", label: "Quantité distribuée à l'AC au cours du mois", kind: "conditional"},
         {key: "qte_perime_avarie_mois", label: "Quantité périmée, avariée au cours du mois", kind: "conditional"},
         {key: "qte_redepl_mois", label: "Quantité redéployée au cours du mois", kind: "conditional"},
+        {key: "nb_jour_rupture", label: "Nombre de jours de rupture", kind: "conditional"},
     ],
     [
-        {key: "nb_jour_rupture", label: "Nombre de jours de rupture", kind: "conditional"},
         {key: "stock_theorique", label: "Stock théorique", kind: "computed", derived: true},
         {key: "sdu_fin_mois", label: "SDU fin du mois", kind: "computed", derived: true},
+        {key: "ecart", label: "Ecart", kind: "computed", derived: true},
     ],
     [
-        {key: "ecart", label: "Ecart", kind: "computed", derived: true},
         {key: "cmm", label: "CMM", kind: "conditional"},
         {key: "cmma", label: "CMMA", kind: "computed", derived: true},
-    ],
-    [
         {key: "msd", label: "MSD", kind: "computed", derived: true},
     ],
 ];
@@ -135,34 +133,31 @@ function FieldGrid({
 
     return (
         <Stack spacing={1.5}>
-            {FIELD_ROWS.map((rowFields, i) => {
-                const isLastRow = i === FIELD_ROWS.length - 1;
-                return (
-                    <Grid container spacing={2} key={i}>
-                        {rowFields.map((field) => {
-                            const value = ligne?.[field.key];
-                            return (
-                                <Grid size={4} key={field.key}>
-                                    <FieldBox
-                                        label={field.label}
-                                        value={displayValue(value)}
-                                        accent={accentFor(field.kind, value)}
-                                    />
-                                </Grid>
-                            );
-                        })}
-                        {isLastRow && (
-                            <Grid size={8}>
+            {FIELD_ROWS.map((rowFields, i) => (
+                <Grid container spacing={2} key={i}>
+                    {rowFields.map((field) => {
+                        const value = ligne?.[field.key];
+                        return (
+                            <Grid size={4} key={field.key}>
                                 <FieldBox
-                                    label="Observation"
-                                    value={observation.trim() === "" ? "Aucune observation." : observation}
-                                    accent={observation.trim() === "" ? ACCENT_BLANK : ACCENT_FILLED}
+                                    label={field.label}
+                                    value={displayValue(value)}
+                                    accent={accentFor(field.kind, value)}
                                 />
                             </Grid>
-                        )}
-                    </Grid>
-                );
-            })}
+                        );
+                    })}
+                </Grid>
+            ))}
+            <Grid container spacing={2}>
+                <Grid size={12}>
+                    <FieldBox
+                        label="Observation"
+                        value={observation.trim() === "" ? "Aucune observation." : observation}
+                        accent={observation.trim() === "" ? ACCENT_BLANK : ACCENT_FILLED}
+                    />
+                </Grid>
+            </Grid>
             <Grid container spacing={2}>
                 <Grid size={12}>
                     <FieldBox
@@ -204,7 +199,6 @@ function ligneToFormState(ligne: RapportHopitauxLigne | null, previousSduFinMois
         qte_dispo_deb_mois: ligne?.qte_dispo_deb_mois != null ? str(ligne.qte_dispo_deb_mois) : str(previousSduFinMois),
         qte_rec_mois: str(ligne?.qte_rec_mois),
         qte_dist_patient: str(ligne?.qte_dist_patient),
-        qte_dist_ac: str(ligne?.qte_dist_ac),
         qte_perime_avarie_mois: str(ligne?.qte_perime_avarie_mois),
         qte_redepl_mois: str(ligne?.qte_redepl_mois),
         nb_jour_rupture: str(ligne?.nb_jour_rupture),
@@ -249,10 +243,9 @@ function computeValues(form: FormState, sduRows: EditableSduRow[]): ComputedValu
         num(form.qte_rec_mois) -
         num(form.qte_redepl_mois) -
         num(form.qte_dist_patient) -
-        num(form.qte_dist_ac) -
         num(form.qte_perime_avarie_mois);
-    const ecart = num(form.qte_dispo_deb_mois) - stock_theorique;
     const sdu_fin_mois = sduRows.reduce((sum, row) => sum + num(row.sdu), 0);
+    const ecart = sdu_fin_mois - stock_theorique;
     const cmm = Math.round(num(form.cmm));
     const msd = cmm ? Math.round((sdu_fin_mois / cmm) * 100) / 100 : 0;
     const situation = computeSituation(msd);
@@ -272,7 +265,6 @@ function formStateToLigne(
         qte_dispo_deb_mois: num(form.qte_dispo_deb_mois),
         qte_rec_mois: num(form.qte_rec_mois),
         qte_dist_patient: num(form.qte_dist_patient),
-        qte_dist_ac: num(form.qte_dist_ac),
         qte_perime_avarie_mois: num(form.qte_perime_avarie_mois),
         qte_redepl_mois: num(form.qte_redepl_mois),
         nb_jour_rupture: num(form.nb_jour_rupture),
@@ -303,77 +295,74 @@ function EditFieldGrid({
 }) {
     return (
         <Stack spacing={1.5}>
-            {FIELD_ROWS.map((rowFields, i) => {
-                const isLastRow = i === FIELD_ROWS.length - 1;
-                return (
-                    <Grid container spacing={2} key={i}>
-                        {rowFields.map((field) => {
-                            // Derived fields (stock_theorique, sdu_fin_mois, ecart, msd) get
-                            // their live value from computeValues; CMMA is also derived
-                            // (read-only here) but has no formula, so it just echoes whatever
-                            // value the line already has.
-                            const computedValue = (computed as Partial<Record<NumericFieldKey, number>>)[field.key];
-                            const raw = field.derived
-                                ? (computedValue !== undefined ? String(computedValue) : values[field.key])
-                                : values[field.key];
-                            const parsed = raw.trim() === "" ? null : Number(raw);
-                            return (
-                                <Grid size={4} key={field.key}>
-                                    {field.derived ? (
-                                        <FieldBox
-                                            label={field.label}
-                                            value={displayValue(parsed)}
-                                            accent={accentFor(field.kind, parsed)}
-                                        />
-                                    ) : (
-                                        <Box
-                                            sx={{
-                                                borderLeft: `4px solid ${accentFor(field.kind, parsed)}`,
-                                                bgcolor: "grey.100",
-                                                px: 2,
-                                                py: 1,
-                                                borderRadius: "0 4px 4px 0",
-                                            }}
-                                        >
-                                            <TextField
-                                                variant="standard"
-                                                label={field.label}
-                                                type="number"
-                                                fullWidth
-                                                value={raw}
-                                                onChange={(e) => onChange(field.key, e.target.value)}
-                                                slotProps={{inputLabel: {shrink: true}}}
-                                            />
-                                        </Box>
-                                    )}
-                                </Grid>
-                            );
-                        })}
-                        {isLastRow && (
-                            <Grid size={8}>
-                                <Box
-                                    sx={{
-                                        borderLeft: `4px solid ${observation.trim() === "" ? ACCENT_BLANK : ACCENT_FILLED}`,
-                                        bgcolor: "grey.100",
-                                        px: 2,
-                                        py: 1,
-                                        borderRadius: "0 4px 4px 0",
-                                    }}
-                                >
-                                    <TextField
-                                        variant="standard"
-                                        label="Observation"
-                                        fullWidth
-                                        value={observation}
-                                        onChange={(e) => onObservationChange(e.target.value)}
-                                        slotProps={{inputLabel: {shrink: true}}}
+            {FIELD_ROWS.map((rowFields, i) => (
+                <Grid container spacing={2} key={i}>
+                    {rowFields.map((field) => {
+                        // Derived fields (stock_theorique, sdu_fin_mois, ecart, msd) get
+                        // their live value from computeValues; CMMA is also derived
+                        // (read-only here) but has no formula, so it just echoes whatever
+                        // value the line already has.
+                        const computedValue = (computed as Partial<Record<NumericFieldKey, number>>)[field.key];
+                        const raw = field.derived
+                            ? (computedValue !== undefined ? String(computedValue) : values[field.key])
+                            : values[field.key];
+                        const parsed = raw.trim() === "" ? null : Number(raw);
+                        return (
+                            <Grid size={4} key={field.key}>
+                                {field.derived ? (
+                                    <FieldBox
+                                        label={field.label}
+                                        value={displayValue(parsed)}
+                                        accent={accentFor(field.kind, parsed)}
                                     />
-                                </Box>
+                                ) : (
+                                    <Box
+                                        sx={{
+                                            borderLeft: `4px solid ${accentFor(field.kind, parsed)}`,
+                                            bgcolor: "grey.100",
+                                            px: 2,
+                                            py: 1,
+                                            borderRadius: "0 4px 4px 0",
+                                        }}
+                                    >
+                                        <TextField
+                                            variant="standard"
+                                            label={field.label}
+                                            type="number"
+                                            fullWidth
+                                            value={raw}
+                                            onChange={(e) => onChange(field.key, e.target.value)}
+                                            slotProps={{inputLabel: {shrink: true}}}
+                                        />
+                                    </Box>
+                                )}
                             </Grid>
-                        )}
-                    </Grid>
-                );
-            })}
+                        );
+                    })}
+                </Grid>
+            ))}
+            <Grid container spacing={2}>
+                <Grid size={12}>
+                    <Box
+                        sx={{
+                            borderLeft: `4px solid ${observation.trim() === "" ? ACCENT_BLANK : ACCENT_FILLED}`,
+                            bgcolor: "grey.100",
+                            px: 2,
+                            py: 1,
+                            borderRadius: "0 4px 4px 0",
+                        }}
+                    >
+                        <TextField
+                            variant="standard"
+                            label="Observation"
+                            fullWidth
+                            value={observation}
+                            onChange={(e) => onObservationChange(e.target.value)}
+                            slotProps={{inputLabel: {shrink: true}}}
+                        />
+                    </Box>
+                </Grid>
+            </Grid>
         </Stack>
     );
 }

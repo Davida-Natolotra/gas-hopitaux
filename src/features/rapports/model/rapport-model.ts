@@ -5,7 +5,6 @@ export interface RapportHopitauxLigne {
     qte_dispo_deb_mois: number | null;
     qte_rec_mois: number | null;
     qte_dist_patient: number | null;
-    qte_dist_ac: number | null;
     qte_perime_avarie_mois: number | null;
     qte_redepl_mois: number | null;
     nb_jour_rupture: number | null;

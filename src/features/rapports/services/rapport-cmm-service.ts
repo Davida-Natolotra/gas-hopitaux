@@ -17,7 +17,6 @@ interface LigneRow {
     rapportfs_id: string;
     produit_programme_niveau_id: string;
     qte_dist_patient: number | null;
-    qte_dist_ac: number | null;
     nb_jour_rupture: number | null;
 }
 
@@ -28,7 +27,6 @@ function isReported(row: LigneRow | undefined): row is LigneRow {
     return (
         row !== undefined &&
         row.qte_dist_patient !== null &&
-        row.qte_dist_ac !== null &&
         row.nb_jour_rupture !== null
     );
 }
@@ -40,7 +38,7 @@ function isReported(row: LigneRow | undefined): row is LigneRow {
 async function applyCmmToTarget(firstId: string, secondId: string, thirdId: string, targetId: string): Promise<boolean> {
     const db = await getDb();
     const rows = await db.select<LigneRow[]>(
-        `SELECT rapportfs_id, produit_programme_niveau_id, qte_dist_patient, qte_dist_ac, nb_jour_rupture
+        `SELECT rapportfs_id, produit_programme_niveau_id, qte_dist_patient, nb_jour_rupture
          FROM rapportfs_ligne
          WHERE rapportfs_id = $1
             OR rapportfs_id = $2
@@ -65,9 +63,9 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
         const third = byMonth.get(thirdId);
         if (!isReported(first) || !isReported(second) || !isReported(third)) continue;
 
-        const somme1 = (first.qte_dist_patient ?? 0) + (first.qte_dist_ac ?? 0);
-        const somme2 = (second.qte_dist_patient ?? 0) + (second.qte_dist_ac ?? 0);
-        const somme3 = (third.qte_dist_patient ?? 0) + (third.qte_dist_ac ?? 0);
+        const somme1 = first.qte_dist_patient ?? 0;
+        const somme2 = second.qte_dist_patient ?? 0;
+        const somme3 = third.qte_dist_patient ?? 0;
         const sommeTotale = somme1 + somme2 + somme3;
 
         const totalRupture =

@@ -31,7 +31,6 @@ interface RapportViewQueryRow {
     qte_dispo_deb_mois: number | null;
     qte_rec_mois: number | null;
     qte_dist_patient: number | null;
-    qte_dist_ac: number | null;
     qte_perime_avarie_mois: number | null;
     qte_redepl_mois: number | null;
     nb_jour_rupture: number | null;
@@ -53,7 +52,6 @@ function toLigne(row: RapportViewQueryRow): RapportHopitauxLigne | null {
         qte_dispo_deb_mois: row.qte_dispo_deb_mois,
         qte_rec_mois: row.qte_rec_mois,
         qte_dist_patient: row.qte_dist_patient,
-        qte_dist_ac: row.qte_dist_ac,
         qte_perime_avarie_mois: row.qte_perime_avarie_mois,
         qte_redepl_mois: row.qte_redepl_mois,
         nb_jour_rupture: row.nb_jour_rupture,
@@ -116,7 +114,6 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
                 l.qte_dispo_deb_mois,
                 l.qte_rec_mois,
                 l.qte_dist_patient,
-                l.qte_dist_ac,
                 l.qte_perime_avarie_mois,
                 l.qte_redepl_mois,
                 l.nb_jour_rupture,
@@ -182,15 +179,14 @@ export async function saveRapportFsLigne(
     const db = await getDb();
     const rows = await db.select<{ id: string }[]>(
         `INSERT INTO rapportfs_ligne (id, rapportfs_id, produit_programme_niveau_id, qte_dispo_deb_mois,
-                                       qte_rec_mois, qte_dist_patient, qte_dist_ac, qte_perime_avarie_mois,
+                                       qte_rec_mois, qte_dist_patient, qte_perime_avarie_mois,
                                        qte_redepl_mois, nb_jour_rupture, stock_theorique, sdu_fin_mois, ecart,
                                        cmm, cmma, msd, situation, observation)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
          ON CONFLICT(rapportfs_id, produit_programme_niveau_id) DO UPDATE SET
              qte_dispo_deb_mois     = excluded.qte_dispo_deb_mois,
              qte_rec_mois           = excluded.qte_rec_mois,
              qte_dist_patient       = excluded.qte_dist_patient,
-             qte_dist_ac            = excluded.qte_dist_ac,
              qte_perime_avarie_mois = excluded.qte_perime_avarie_mois,
              qte_redepl_mois        = excluded.qte_redepl_mois,
              nb_jour_rupture        = excluded.nb_jour_rupture,
@@ -210,7 +206,6 @@ export async function saveRapportFsLigne(
             ligne.qte_dispo_deb_mois,
             ligne.qte_rec_mois,
             ligne.qte_dist_patient,
-            ligne.qte_dist_ac,
             ligne.qte_perime_avarie_mois,
             ligne.qte_redepl_mois,
             ligne.nb_jour_rupture,

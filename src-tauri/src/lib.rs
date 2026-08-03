@@ -42,6 +42,12 @@ pub fn run() {
             sql: include_str!("../migrations/0005_create_device_and_user_fs.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "drop_qte_dist_ac",
+            sql: include_str!("../migrations/0006_drop_qte_dist_ac.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

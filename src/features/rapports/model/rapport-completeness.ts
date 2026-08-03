@@ -9,7 +9,6 @@ export const MANDATORY_LIGNE_FIELDS: (keyof RapportHopitauxLigne)[] = [
     "qte_dispo_deb_mois",
     "qte_rec_mois",
     "qte_dist_patient",
-    "qte_dist_ac",
     "qte_perime_avarie_mois",
     "qte_redepl_mois",
     "nb_jour_rupture",

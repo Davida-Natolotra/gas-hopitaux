@@ -48,7 +48,6 @@ interface RapportfsLigneRow {
     qte_dispo_deb_mois: number | null;
     qte_rec_mois: number | null;
     qte_dist_patient: number | null;
-    qte_dist_ac: number | null;
     qte_perime_avarie_mois: number | null;
     qte_redepl_mois: number | null;
     nb_jour_rupture: number | null;
@@ -101,7 +100,7 @@ async function buildExportPayload(rapportfsId: string): Promise<UtglfsExportPayl
 
     const ligneRows = await db.select<RapportfsLigneRow[]>(
         `SELECT id, rapportfs_id, produit_programme_niveau_id, qte_dispo_deb_mois, qte_rec_mois,
-                qte_dist_patient, qte_dist_ac, qte_perime_avarie_mois, qte_redepl_mois, nb_jour_rupture,
+                qte_dist_patient, qte_perime_avarie_mois, qte_redepl_mois, nb_jour_rupture,
                 stock_theorique, sdu_fin_mois, ecart, cmm, cmma, msd, situation, observation
          FROM rapportfs_ligne
          WHERE rapportfs_id = $1`,
