@@ -2,12 +2,13 @@ import {invoke} from "@tauri-apps/api/core";
 import {save} from "@tauri-apps/plugin-dialog";
 import {writeFile} from "@tauri-apps/plugin-fs";
 import {getDb} from "../../../services/db.ts";
+import {stampReportWithConfigVersion} from "../../configuration/services/config-version-service.ts";
 
 const UTGLFS_FILTERS = [{name: "Export UTGL FS", extensions: ["utglhp"]}];
 
 interface MyProduitProgrammeNiveauRow {
     id: string;
-    produit_id: number;
+    produit_id: string;
     programme_id: string;
     org_group_id: string;
     org_group_name: string;
@@ -39,6 +40,10 @@ interface RapportfsRow {
     mois_annee: string | null;
     fs_id: string;
     edited_by: string | null;
+    // The configuration this report was filled in against. The server measures
+    // completeness against this rather than against its current configuration,
+    // so a report captured before a produit existed is not counted as missing it.
+    config_version: number | null;
 }
 
 interface RapportfsLigneRow {
@@ -59,6 +64,14 @@ interface RapportfsLigneRow {
     msd: number;
     situation: string;
     observation: string;
+    // How the produit was labelled here when the line was filled in. Travels with
+    // the line so the server can store it verbatim, and so a line whose
+    // configuration the server does not recognise can still be named in the
+    // import report instead of being dropped without trace.
+    produit_code: string;
+    produit_name: string;
+    produit_unit: string;
+    programme_name: string;
 }
 
 interface DetailSduRow {
@@ -92,7 +105,7 @@ async function buildExportPayload(rapportfsId: string): Promise<UtglfsExportPayl
         `SELECT id, username, poste, phone, device_id FROM user_fs`,
     );
     const rapportfs = await db.select<RapportfsRow[]>(
-        `SELECT id, name, created, exported_date, status, mois_annee, fs_id, edited_by
+        `SELECT id, name, created, exported_date, status, mois_annee, fs_id, edited_by, config_version
          FROM rapportfs
          WHERE id = $1`,
         [rapportfsId],
@@ -101,7 +114,8 @@ async function buildExportPayload(rapportfsId: string): Promise<UtglfsExportPayl
     const ligneRows = await db.select<RapportfsLigneRow[]>(
         `SELECT id, rapportfs_id, produit_programme_niveau_id, qte_dispo_deb_mois, qte_rec_mois,
                 qte_dist_patient, qte_perime_avarie_mois, qte_redepl_mois, nb_jour_rupture,
-                stock_theorique, sdu_fin_mois, ecart, cmm, cmma, msd, situation, observation
+                stock_theorique, sdu_fin_mois, ecart, cmm, cmma, msd, situation, observation,
+                produit_code, produit_name, produit_unit, programme_name
          FROM rapportfs_ligne
          WHERE rapportfs_id = $1`,
         [rapportfsId],
@@ -142,6 +156,11 @@ export async function exportRapportFsToUtglfs(rapportfsId: string, suggestedName
     });
     if (!dest) return null;
 
+    // Stamp the report with the configuration currently installed before the
+    // payload is built: a configuration can arrive between a report being
+    // started and being sent, and what the server needs is the version the
+    // figures in the file were actually entered against.
+    await stampReportWithConfigVersion(rapportfsId);
     const payload = await buildExportPayload(rapportfsId);
     const base64 = await invoke<string>("export_utglfs", {payload});
     await writeFile(dest, base64ToBytes(base64));

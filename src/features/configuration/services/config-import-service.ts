@@ -1,7 +1,8 @@
 import Database from "@tauri-apps/plugin-sql";
 import {getDb} from "../../../services/db.ts";
 import {refreshMyProduitProgrammeNiveau} from "../../organisation-units/organisation-units-service.ts";
-import type {ConfigFile} from "../models/config-model.ts";
+import type {ConfigFile, ConfigTombstone} from "../models/config-model.ts";
+import {getConfigVersion, setConfigVersion} from "./config-version-service.ts";
 
 // Stay comfortably under SQLite's default 999-bound-variable limit per statement.
 const MAX_PARAMS_PER_STATEMENT = 900;
@@ -67,8 +68,52 @@ async function bulkUpsert(
     }
 }
 
+// Which table each kind of tombstone marks. Marking, never deleting: a report
+// already captured against a withdrawn produit must keep displaying it, and the
+// foreign keys from rapportfs_ligne would refuse the delete anyway.
+const TOMBSTONE_TABLES: Record<ConfigTombstone["type"], string[]> = {
+    produit: ["produit"],
+    programme: ["programme"],
+    organisation_unit_group: ["organisation_unit_group"],
+    // The device's own materialised subset has to be marked alongside the full
+    // table, or an archived produit would go on being offered for collection.
+    produit_programme_niveau: ["produit_programme_niveau", "my_produitprogrammeniveau"],
+};
+
+async function applyTombstones(db: Database, tombstones: ConfigTombstone[]): Promise<number> {
+    let marked = 0;
+    for (const tombstone of tombstones) {
+        const tables = TOMBSTONE_TABLES[tombstone.type];
+        if (!tables) continue;
+        for (const table of tables) {
+            await db.execute(
+                `UPDATE ${table}
+                 SET active      = 0,
+                     archived_at = COALESCE(archived_at, $1)
+                 WHERE id = $2`,
+                [tombstone.archived_at, tombstone.id],
+            );
+        }
+        marked += 1;
+    }
+    return marked;
+}
+
 export async function importConfig(config: ConfigFile): Promise<string> {
     const db = await getDb();
+
+    // Configuration is forward-only. Re-importing the same version is fine (a
+    // device may need to be restored), but going backwards would resurrect
+    // produits the server has already withdrawn and silently disagree with
+    // every report stamped since.
+    const installed = await getConfigVersion();
+    if (installed && config.version < installed.version) {
+        throw new Error(
+            `Ce fichier est une configuration plus ancienne (v${config.version}) que celle ` +
+            `installée (v${installed.version}). Les configurations ne reviennent pas en ` +
+            "arrière : exportez la version courante depuis le serveur.",
+        );
+    }
 
     // organisation_units, produit, programme and produit_programme_niveau are
     // upserted (never deleted) because my_organisation_unit, rapportfs_ligne
@@ -93,24 +138,28 @@ export async function importConfig(config: ConfigFile): Promise<string> {
         sortedOrganisationUnits.map((o) => [o.id, o.name, o.level, o.parent_id]),
     );
 
+    // `active`/`archived_at` are part of the upsert so that a row the server has
+    // brought back is un-archived here too; the tombstone pass below then
+    // archives whatever the file says is withdrawn.
     await bulkUpsert(
         db,
         "produit",
-        ["id", "name", "unit", "code", "uuid_dhis2"],
-        config.produits.map((p) => [p.id, p.name, p.unit, p.code, p.uuid_dhis2]),
+        ["id", "name", "unit", "code", "uuid_dhis2", "active", "archived_at"],
+        config.produits.map((p) => [p.id, p.name, p.unit, p.code, p.uuid_dhis2, 1, null]),
     );
 
     await bulkUpsert(
         db,
         "programme",
-        ["id", "name"],
-        config.programmes.map((p) => [p.id, p.name]),
+        ["id", "name", "active", "archived_at"],
+        config.programmes.map((p) => [p.id, p.name, 1, null]),
     );
 
     await bulkUpsert(
         db,
         "produit_programme_niveau",
-        ["id", "produit_id", "programme_id", "org_group_id", "org_group_name", '"order"'],
+        ["id", "produit_id", "programme_id", "org_group_id", "org_group_name", '"order"',
+            "active", "archived_at"],
         config.produit_programme_niveau.map((p) => [
             p.id,
             p.produit_id,
@@ -118,14 +167,16 @@ export async function importConfig(config: ConfigFile): Promise<string> {
             p.org_group_id,
             p.org_group_name,
             p.order,
+            1,
+            null,
         ]),
     );
 
     await bulkInsert(
         db,
         "organisation_unit_group",
-        ["id", "name", "short_name"],
-        config.organisation_unit_groups.map((g) => [g.id, g.name, g.short_name]),
+        ["id", "name", "short_name", "active", "archived_at"],
+        config.organisation_unit_groups.map((g) => [g.id, g.name, g.short_name, 1, null]),
     );
 
     const memberRows: [string, string][] = [];
@@ -138,10 +189,21 @@ export async function importConfig(config: ConfigFile): Promise<string> {
 
     await refreshMyProduitProgrammeNiveau();
 
+    // After the refresh, so my_produitprogrammeniveau exists to be marked.
+    const marked = await applyTombstones(db, config.deactivated);
+
+    await setConfigVersion({
+        version: config.version,
+        schema: config.schema,
+        publishedAt: config.published_at ?? null,
+        checksum: config.checksum ?? null,
+    });
+
+    const withdrawn = marked ? `, ${marked} élément(s) retiré(s) et conservé(s) pour l'historique` : "";
     return (
-        `Importé : ${config.organisation_units.length} unités d'organisation, ` +
-        `${config.produits.length} produits, ${config.programmes.length} programmes, ` +
+        `Configuration v${config.version} importée : ${config.organisation_units.length} unités ` +
+        `d'organisation, ${config.produits.length} produits, ${config.programmes.length} programmes, ` +
         `${config.produit_programme_niveau.length} liaisons produit/programme/niveau, ` +
-        `${config.organisation_unit_groups.length} groupes.`
+        `${config.organisation_unit_groups.length} groupes${withdrawn}.`
     );
 }

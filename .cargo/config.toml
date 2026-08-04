@@ -1,0 +1,17 @@
+# Windows 7 does not ship the Universal CRT, and these are offline hospital
+# desktops where installing KB2999226 or the VC++ redistributable on each
+# machine is not practical. Linking the CRT statically folds it into the exe,
+# so the binary has no `api-ms-win-crt-*.dll` or `VCRUNTIME140.dll` imports at
+# all and runs on a bare Win7 SP1 install.
+#
+# The `cc` crate picks up `crt-static` from CARGO_CFG_TARGET_FEATURE and
+# switches its own C compilation (sqlite3, vswhom) to /MT to match, so the CRT
+# choice stays consistent across the whole link.
+#
+# This flag alone is not sufficient: `tauri build` sets STATIC_VCRUNTIME=true,
+# and tauri-build then force-links the *dynamic* UCRT with link args that
+# override it. See the matching comment in src-tauri/build.rs — both halves are
+# required, and changing one without the other silently brings back the
+# dependency on a CRT that Windows 7 does not have.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -1,4 +1,7 @@
 import "@mui/material/styles";
+// Registers MuiDataGrid in `components` for the Win7/WebView2 109 colour
+// overrides in theme-colors-context.tsx.
+import "@mui/x-data-grid/themeAugmentation";
 import "@mui/material/Button";
 import "@mui/material/IconButton";
 import "@mui/material/Chip";

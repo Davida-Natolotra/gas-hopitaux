@@ -8,6 +8,16 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  // Windows 7 is the oldest supported target, and the last WebView2 runtime
+  // released for it is 109 (see `minimumWebview2Version` in tauri.conf.json).
+  // Pin the JS/CSS output to that floor rather than riding Vite's default
+  // target, so a dependency shipping newer syntax fails the build here
+  // instead of at runtime on a hospital's Windows 7 machine.
+  build: {
+    target: "chrome109",
+    cssTarget: "chrome109",
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

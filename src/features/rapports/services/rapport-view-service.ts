@@ -13,6 +13,10 @@ export interface RapportViewRow {
     // rapportfs (same fs_id), when one exists. Used to default the new
     // month's qte_dispo_deb_mois when this produit hasn't been reported yet.
     previousSduFinMois: number | null;
+    // Withdrawn from the configuration since. Shown only where it belongs (see
+    // getProgrammeSections), and worth marking so the row is not mistaken for
+    // something still being collected.
+    archived: boolean;
 }
 
 export interface ProgrammeSection {
@@ -27,6 +31,7 @@ interface RapportViewQueryRow {
     produit_unit: string;
     programme_id: string;
     programme_name: string;
+    produit_actif: number;
     ligne_id: string | null;
     qte_dispo_deb_mois: number | null;
     qte_rec_mois: number | null;
@@ -101,15 +106,29 @@ async function findPreviousConsecutiveRapportfsId(rapportfsId: string): Promise<
 // shows up as an "Incomplet" row. Also left-joins the previous consecutive
 // month's rapportfs_ligne (if any) to carry over sdu_fin_mois as the
 // suggested qte_dispo_deb_mois for produits not yet reported this month.
+// Archived produits. A produit withdrawn from the configuration must stop being
+// offered for new collection without disappearing from what has already been
+// collected — a report has to stay readable exactly as it was filled in. Three
+// cases are therefore kept, and only those:
+//
+//   * the produit is still active;
+//   * this report already has a line for it, whatever its state now;
+//   * this report is for a month that ended before the produit was withdrawn,
+//     so it *should* carry it even if nobody has typed the figures in yet.
+//
+// The labels come from the line where there is one, and from the configuration
+// only for rows not yet filled in. Reading them from the join instead would let
+// a later rename silently rewrite what a finished report appears to say.
 export async function getProgrammeSections(rapportfsId: string): Promise<ProgrammeSection[]> {
     const db = await getDb();
     const previousRapportfsId = await findPreviousConsecutiveRapportfsId(rapportfsId);
     const rows = await db.select<RapportViewQueryRow[]>(
         `SELECT mppn.id                        AS ppn_id,
-                p.name                         AS produit_name,
-                p.unit                         AS produit_unit,
+                COALESCE(NULLIF(l.produit_name, ''), p.name)    AS produit_name,
+                COALESCE(NULLIF(l.produit_unit, ''), p.unit)    AS produit_unit,
                 pr.id                          AS programme_id,
-                pr.name                        AS programme_name,
+                COALESCE(NULLIF(l.programme_name, ''), pr.name) AS programme_name,
+                mppn.active                    AS produit_actif,
                 l.id                           AS ligne_id,
                 l.qte_dispo_deb_mois,
                 l.qte_rec_mois,
@@ -133,6 +152,10 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
                             ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = $1
                   LEFT JOIN rapportfs_ligne prev_l
                             ON prev_l.produit_programme_niveau_id = mppn.id AND prev_l.rapportfs_id = $2
+         WHERE mppn.active = 1
+            OR l.id IS NOT NULL
+            OR (mppn.archived_at IS NOT NULL
+                AND (SELECT mois_annee FROM rapportfs WHERE id = $1) < substr(mppn.archived_at, 1, 7))
          ORDER BY pr.name, (mppn."order" IS NULL), mppn."order", p.name`,
         [rapportfsId, previousRapportfsId ?? ""],
     );
@@ -151,6 +174,7 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
             ligneId: row.ligne_id,
             ligne: toLigne(row),
             previousSduFinMois: row.prev_sdu_fin_mois,
+            archived: row.produit_actif === 0,
         });
     }
     return Array.from(sections.values());
@@ -171,6 +195,10 @@ export async function getDetailSdu(rapportfsLigneId: string): Promise<DetailSDU[
 // doesn't exist yet (row.ligne was null), otherwise updates it in place.
 // Returns the row's id (the existing one when updating), so the caller can
 // attach detail_sdu entries to it even for a brand-new ligne.
+// The produit's labels are copied onto the line as it is written, off the
+// configuration in force at that moment: that is the record of what the person
+// filling the form actually saw, and it must not change when the configuration
+// later does. Written on insert only, never on update.
 export async function saveRapportFsLigne(
     rapportfsId: string,
     produitProgrammeNiveauId: string,
@@ -181,8 +209,14 @@ export async function saveRapportFsLigne(
         `INSERT INTO rapportfs_ligne (id, rapportfs_id, produit_programme_niveau_id, qte_dispo_deb_mois,
                                        qte_rec_mois, qte_dist_patient, qte_perime_avarie_mois,
                                        qte_redepl_mois, nb_jour_rupture, stock_theorique, sdu_fin_mois, ecart,
-                                       cmm, cmma, msd, situation, observation)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                                       cmm, cmma, msd, situation, observation,
+                                       produit_code, produit_name, produit_unit, programme_name)
+         SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                COALESCE(p.code, ''), p.name, p.unit, pr.name
+         FROM produit_programme_niveau ppn
+                  JOIN produit p ON p.id = ppn.produit_id
+                  JOIN programme pr ON pr.id = ppn.programme_id
+         WHERE ppn.id = $3
          ON CONFLICT(rapportfs_id, produit_programme_niveau_id) DO UPDATE SET
              qte_dispo_deb_mois     = excluded.qte_dispo_deb_mois,
              qte_rec_mois           = excluded.qte_rec_mois,

@@ -48,6 +48,12 @@ pub fn run() {
             sql: include_str!("../migrations/0006_drop_qte_dist_ac.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 7,
+            description: "config_versioning",
+            sql: include_str!("../migrations/0007_config_versioning.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

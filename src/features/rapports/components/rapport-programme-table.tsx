@@ -651,7 +651,24 @@ function ProduitRow({row, rapportfsId}: { row: RapportViewRow; rapportfsId: stri
                         {open ? <KeyboardArrowUpIcon/> : <KeyboardArrowDownIcon/>}
                     </IconButton>
                 </TableCell>
-                <TableCell>{row.produitName}</TableCell>
+                <TableCell>
+                    <Stack direction="row" spacing={1} sx={{alignItems: "center"}}>
+                        <span>{row.produitName}</span>
+                        {/* This produit has been withdrawn from the configuration
+                            since. It is shown because this report was collected
+                            against it — marked so it is not mistaken for
+                            something still expected. */}
+                        {row.archived && (
+                            <Chip
+                                label="Retiré"
+                                size="small"
+                                variant="outlined"
+                                color="warning"
+                                title="Retiré de la configuration ; conservé ici tel qu'il a été saisi."
+                            />
+                        )}
+                    </Stack>
+                </TableCell>
                 <TableCell>{row.unit}</TableCell>
                 <TableCell>
                     <Chip
