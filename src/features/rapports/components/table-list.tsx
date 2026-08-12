@@ -30,6 +30,12 @@ export default function RapportfsTable({
         },
         {field: "name", headerName: "Nom", flex: 1, minWidth: 200},
         {
+            field: "created",
+            headerName: "Date de création",
+            width: 150,
+            valueFormatter: (value: string | null) => formatDate(value),
+        },
+        {
             field: "status",
             headerName: "Statut",
             width: 140,

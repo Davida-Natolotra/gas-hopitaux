@@ -256,6 +256,109 @@ export async function saveRapportFsLigne(
     return rows[0].id;
 }
 
+interface CarryLigneRow {
+    id: string;
+    qte_dispo_deb_mois: number | null;
+    qte_rec_mois: number | null;
+    qte_dist_patient: number | null;
+    qte_perime_avarie_mois: number | null;
+    qte_redepl_mois: number | null;
+    sdu_fin_mois: number | null;
+}
+
+// A month's opening stock is the closing stock of the month before it, so
+// editing a past month's sdu_fin_mois leaves every later consecutive month's
+// qte_dispo_deb_mois — and the stock_theorique / ecart derived from it —
+// stale. Walks that chain forward (same fs_id) for the produit that was just
+// saved and rewrites the lines that already hold a figure.
+//
+// A month whose line doesn't exist yet, or whose qte_dispo_deb_mois was never
+// entered, is left untouched and ends the walk: it already picks the fresh
+// value up from previousSduFinMois when it is opened, and it has no closing
+// stock of its own to pass any further.
+//
+// Only values that were already non-null are rewritten, so no rapportfs can
+// change completeness here and statuses stay as they are. Returns the ids of
+// the rapportfs actually updated.
+export async function propagateQteDispoDebMois(
+    rapportfsId: string,
+    produitProgrammeNiveauId: string,
+    sduFinMois: number | null,
+): Promise<string[]> {
+    const db = await getDb();
+    const current = await db.select<{ mois_annee: string | null; fs_id: string }[]>(
+        `SELECT mois_annee, fs_id
+         FROM rapportfs
+         WHERE id = $1`,
+        [rapportfsId],
+    );
+    let ym = parseMoisAnnee(current[0]?.mois_annee ?? null);
+    if (!ym) return [];
+
+    const siblings = await db.select<{ id: string; mois_annee: string | null }[]>(
+        `SELECT id, mois_annee
+         FROM rapportfs
+         WHERE fs_id = $1
+           AND id != $2`,
+        [current[0].fs_id, rapportfsId],
+    );
+    const byMonth = new Map<string, string>();
+    for (const sibling of siblings) {
+        const sym = parseMoisAnnee(sibling.mois_annee);
+        if (sym) byMonth.set(monthKey(sym), sibling.id);
+    }
+
+    const num = (value: number | null) => value ?? 0;
+    const touched: string[] = [];
+    let carry = sduFinMois;
+
+    for (; ;) {
+        ym = shiftMonths(ym, 1);
+        const nextId = byMonth.get(monthKey(ym));
+        if (!nextId || carry === null) break;
+
+        const lignes = await db.select<CarryLigneRow[]>(
+            `SELECT id,
+                    qte_dispo_deb_mois,
+                    qte_rec_mois,
+                    qte_dist_patient,
+                    qte_perime_avarie_mois,
+                    qte_redepl_mois,
+                    sdu_fin_mois
+             FROM rapportfs_ligne
+             WHERE rapportfs_id = $1
+               AND produit_programme_niveau_id = $2`,
+            [nextId, produitProgrammeNiveauId],
+        );
+        const ligne = lignes[0];
+        if (!ligne || ligne.qte_dispo_deb_mois === null) break;
+
+        if (ligne.qte_dispo_deb_mois !== carry) {
+            // Same formulas as the edit form's computeValues, so a line
+            // rewritten here matches what saving it by hand would produce.
+            const stockTheorique =
+                carry +
+                num(ligne.qte_rec_mois) -
+                num(ligne.qte_redepl_mois) -
+                num(ligne.qte_dist_patient) -
+                num(ligne.qte_perime_avarie_mois);
+            const ecart = num(ligne.sdu_fin_mois) - stockTheorique;
+            await db.execute(
+                `UPDATE rapportfs_ligne
+                 SET qte_dispo_deb_mois = $1,
+                     stock_theorique    = $2,
+                     ecart              = $3
+                 WHERE id = $4`,
+                [carry, stockTheorique, ecart, ligne.id],
+            );
+            touched.push(nextId);
+        }
+        carry = ligne.sdu_fin_mois;
+    }
+
+    return touched;
+}
+
 export interface DetailSduInput {
     sdu: number;
     date_peremption: string | null;

@@ -2,9 +2,15 @@ import type {RapportHopitauxLigne} from "./rapport-model.ts";
 
 // The fields that must be filled in for a produit's line to count as
 // "Complet" — kept in sync with the edit form in rapport-programme-table.tsx.
-// Excludes the derived/auto-computed fields (stock_theorique, ecart,
-// sdu_fin_mois, msd), CMMA (not required), and Observation (not part of this
-// numeric field set at all).
+// Excludes the derived/auto-computed fields (stock_theorique, ecart, msd),
+// CMMA (not required), and Observation (not part of this numeric field set at
+// all).
+//
+// sdu_fin_mois is derived too, but it is the one derived field that can come
+// out blank: it is the sum of the line's Détails SDU, and with no SDU entered
+// there is no closing stock figure at all — which is not the same as a
+// closing stock of 0. It is listed here so a line missing its Détails SDU
+// stays "Incomplet" until they are entered.
 export const MANDATORY_LIGNE_FIELDS: (keyof RapportHopitauxLigne)[] = [
     "qte_dispo_deb_mois",
     "qte_rec_mois",
@@ -12,6 +18,7 @@ export const MANDATORY_LIGNE_FIELDS: (keyof RapportHopitauxLigne)[] = [
     "qte_perime_avarie_mois",
     "qte_redepl_mois",
     "nb_jour_rupture",
+    "sdu_fin_mois",
     "cmm",
 ];
 

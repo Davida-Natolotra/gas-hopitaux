@@ -34,10 +34,16 @@ import {isLigneComplete} from "../model/rapport-completeness.ts";
 import {COMPLETENESS_STYLES, completenessStyle} from "../styles/completeness-style.ts";
 import {situationStyle} from "../styles/situation-style.ts";
 import type {RapportViewRow} from "../services/rapport-view-service.ts";
-import {getDetailSdu, saveDetailSdu, saveRapportFsLigne} from "../services/rapport-view-service.ts";
+import {
+    getDetailSdu,
+    propagateQteDispoDebMois,
+    saveDetailSdu,
+    saveRapportFsLigne
+} from "../services/rapport-view-service.ts";
 import {refreshRapportFsStatus} from "../services/rapportfs-service.ts";
 import {generateUuid} from "../../../services/id-service.ts";
 import {formatMoisAnnee} from "../../../utils/date-format.ts";
+import {daysInMonth, parseMoisAnnee} from "../../../utils/mois-annee.ts";
 import {useNotification} from "../../../notifications/notification-provider.tsx";
 // Accent rule: for the "movement" quantities, filled-in data is olive, blanks
 // are red (draws the eye to missing entries); the derived/computed fields
@@ -68,6 +74,18 @@ interface FieldDef {
     // edit form (see computeValues below) — rendered read-only there instead
     // of as a free-text input.
     derived?: boolean;
+    // Smallest value the field accepts once something has been typed into it.
+    // Enforced in the edit form and again before saving (see fieldError).
+    min?: number;
+    // Upper bound is the length of the rapport's own month (28-31), so it can
+    // only be resolved once that month is known — see fieldMax.
+    maxIsDaysInMonth?: boolean;
+    // Upper bound is everything the FS actually had to hand over the month
+    // (see stockDisponible), for the quantities that come out of that stock.
+    maxIsStockDisponible?: boolean;
+    // Minimum that takes over when nothing moved at all this month (see
+    // MOVEMENT_FIELDS), for the fields whose floor depends on that.
+    minWithoutMovement?: number;
 }
 
 // Single source of truth for the field layout, shared by the read-only
@@ -78,12 +96,31 @@ const FIELD_ROWS: FieldDef[][] = [
     [
         {key: "qte_dispo_deb_mois", label: "Quantité disponible au début du mois", kind: "conditional"},
         {key: "qte_rec_mois", label: "Quantité reçue au cours du mois", kind: "conditional"},
-        {key: "qte_dist_patient", label: "Quantité distribuée aux patients au cours du mois", kind: "conditional"},
+        // Nothing can have been handed to a patient that the FS never had:
+        // the ceiling is the opening stock plus everything received.
+        {
+            key: "qte_dist_patient",
+            label: "Quantité distribuée aux patients au cours du mois",
+            kind: "conditional",
+            maxIsStockDisponible: true,
+        },
     ],
     [
         {key: "qte_perime_avarie_mois", label: "Quantité périmée, avariée au cours du mois", kind: "conditional"},
         {key: "qte_redepl_mois", label: "Quantité redéployée au cours du mois", kind: "conditional"},
-        {key: "nb_jour_rupture", label: "Nombre de jours de rupture", kind: "conditional"},
+        // A rupture can't run for longer than the month being reported on, nor
+        // for a negative number of days. And if nothing moved at all — no
+        // opening stock, nothing received, nothing distributed — the produit
+        // cannot have been available every day either, so at least one day of
+        // rupture has to be reported.
+        {
+            key: "nb_jour_rupture",
+            label: "Nombre de jours de rupture",
+            kind: "conditional",
+            min: 0,
+            minWithoutMovement: 1,
+            maxIsDaysInMonth: true,
+        },
     ],
     [
         {key: "stock_theorique", label: "Stock théorique", kind: "computed", derived: true},
@@ -91,24 +128,131 @@ const FIELD_ROWS: FieldDef[][] = [
         {key: "ecart", label: "Ecart", kind: "computed", derived: true},
     ],
     [
-        {key: "cmm", label: "CMM", kind: "conditional"},
+        // A consommation moyenne mensuelle of 0 is not a real figure — it would
+        // also drive MSD to 0 and report the produit as en RUPTURE whatever the
+        // stock says. Anything entered here has to be at least 1.
+        {key: "cmm", label: "CMM", kind: "conditional", min: 1},
         {key: "cmma", label: "CMMA", kind: "computed", derived: true},
         {key: "msd", label: "MSD", kind: "computed", derived: true},
     ],
 ];
 
 function accentFor(kind: FieldDef["kind"], value: number | null | undefined): string {
-    if (kind === "computed") return ACCENT_COMPUTED;
-    return value === null || value === undefined ? ACCENT_BLANK : ACCENT_FILLED;
+    // A blank is a blank whichever kind of field it sits in: a computed field
+    // with nothing to show (SDU fin du mois and the Ecart derived from it,
+    // before any Détail SDU is entered) is a hole in the data too.
+    if (value === null || value === undefined) return ACCENT_BLANK;
+    return kind === "computed" ? ACCENT_COMPUTED : ACCENT_FILLED;
 }
 
 function displayValue(value: number | null | undefined): string {
     return value === null || value === undefined ? "—" : String(value);
 }
 
+// The quantities that record an actual movement of stock over the month.
+const MOVEMENT_FIELDS: NumericFieldKey[] = [
+    "qte_dispo_deb_mois",
+    "qte_rec_mois",
+    "qte_dist_patient",
+    "qte_perime_avarie_mois",
+    "qte_redepl_mois",
+];
+
+// True when not one of those quantities is above zero. A blank counts as
+// nothing moved, the same way computeValues reads it as 0.
+function hasNoMovement(form: FormState): boolean {
+    return MOVEMENT_FIELDS.every((key) => {
+        const raw = form[key].trim();
+        return raw === "" || Number(raw) === 0;
+    });
+}
+
+// Everything the FS had available to give out over the month: what was on the
+// shelf on day one plus everything that came in. A blank counts as 0, the same
+// way computeValues reads it.
+function stockDisponible(form: FormState): number {
+    const num = (raw: string) => {
+        const parsed = Number(raw.trim());
+        return raw.trim() !== "" && Number.isFinite(parsed) ? parsed : 0;
+    };
+    return num(form.qte_dispo_deb_mois) + num(form.qte_rec_mois);
+}
+
+// The ceiling in force for this field right now, with the message that
+// explains it — same shape as fieldMin, and for the same reason: a limit
+// computed from the rest of the form has to say where it comes from.
+//
+// Null means "no ceiling": either the field doesn't have one, or the rapport's
+// mois_annee is missing/unparseable and we can't say how long its month was —
+// better to accept the figure than to invent a limit.
+function fieldMax(field: FieldDef, form: FormState, daysInMois: number | null): {
+    value: number;
+    message: string
+} | null {
+    if (field.maxIsDaysInMonth) {
+        return daysInMois === null ? null : {value: daysInMois, message: `Valeur maximale : ${daysInMois}`};
+    }
+    if (field.maxIsStockDisponible) {
+        const available = stockDisponible(form);
+        return {
+            value: available,
+            message: `Au plus le stock disponible (début du mois + reçue) : ${available}`,
+        };
+    }
+    return null;
+}
+
+// The floor in force for this field right now, with the message that explains
+// it — a field whose minimum is raised by the state of the rest of the form
+// has to say why, or the number on its own looks arbitrary.
+function fieldMin(field: FieldDef, form: FormState): { value: number; message: string } | null {
+    if (field.minWithoutMovement !== undefined && hasNoMovement(form)) {
+        return {
+            value: field.minWithoutMovement,
+            message: `Aucun mouvement ce mois : au moins ${field.minWithoutMovement} jour de rupture`,
+        };
+    }
+    if (field.min !== undefined) return {value: field.min, message: `Valeur minimale : ${field.min}`};
+    return null;
+}
+
+// A field's rule only bites once something has been typed into it: a blank
+// stays "pas encore saisi", which is allowed — the ligne simply keeps its
+// "Incomplet" badge instead of blocking the save.
+function fieldError(field: FieldDef, raw: string, form: FormState, daysInMois: number | null): string | null {
+    if (raw.trim() === "") return null;
+    const min = fieldMin(field, form);
+    const max = fieldMax(field, form, daysInMois);
+    if (min === null && max === null) return null;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return "Valeur numérique attendue";
+    if (min !== null && parsed < min.value) return min.message;
+    if (max !== null && parsed > max.value) return max.message;
+    return null;
+}
+
+// First rule broken across the whole form, labelled for the save-blocking
+// alert. Returns null when everything entered so far is acceptable.
+function firstFormError(form: FormState, daysInMois: number | null): string | null {
+    for (const field of FIELD_ROWS.flat()) {
+        const message = fieldError(field, form[field.key], form, daysInMois);
+        if (message) return `${field.label} — ${message}.`;
+    }
+    return null;
+}
+
 function FieldBox({label, value, accent}: { label: string; value: ReactNode; accent: string }) {
     return (
-        <Box sx={{borderLeft: `4px solid ${accent}`, bgcolor: "grey.100", px: 2, py: 1, borderRadius: "0 4px 4px 0"}}>
+        <Box sx={{
+            borderLeft: `4px solid ${accent}`,
+            bgcolor: "grey.100",
+            px: 2,
+            py: 1,
+            borderRadius: "0 4px 4px 0",
+            // Fill the grid cell so every box on a row is the same height,
+            // whatever the tallest one on it happens to contain.
+            height: "100%",
+        }}>
             <Typography variant="caption" color="text.secondary" component="div">
                 {label}
             </Typography>
@@ -213,8 +357,9 @@ function ligneToFormState(ligne: RapportHopitauxLigne | null, previousSduFinMois
 
 interface ComputedValues {
     stock_theorique: number;
-    ecart: number;
-    sdu_fin_mois: number;
+    // Both blank until the line has at least one Détail SDU — see computeValues.
+    ecart: number | null;
+    sdu_fin_mois: number | null;
     cmm: number;
     msd: number;
     situation: string;
@@ -232,6 +377,14 @@ function computeSituation(msd: number): string {
 // and CMM; situation recomputes from MSD. Blank/invalid inputs count as 0
 // rather than breaking the calculation. CMM is rounded to the nearest
 // integer and MSD to 2 decimal places, matching how they're persisted.
+//
+// SDU fin du mois is the exception: with no Détail SDU entered there is
+// nothing to sum, and reporting a closing stock of 0 would claim the produit
+// ran out — so it stays blank, and so does the Ecart measured against it. The
+// line then counts as incomplete (MANDATORY_LIGNE_FIELDS) until the user
+// enters the Détails SDU it is computed from. MSD can't be blank — its column
+// is NOT NULL — but the situation label it drives is left empty rather than
+// reporting a RUPTURE nobody has actually declared.
 function computeValues(form: FormState, sduRows: EditableSduRow[]): ComputedValues {
     const num = (value: string) => {
         if (value.trim() === "") return 0;
@@ -244,11 +397,14 @@ function computeValues(form: FormState, sduRows: EditableSduRow[]): ComputedValu
         num(form.qte_redepl_mois) -
         num(form.qte_dist_patient) -
         num(form.qte_perime_avarie_mois);
-    const sdu_fin_mois = sduRows.reduce((sum, row) => sum + num(row.sdu), 0);
-    const ecart = sdu_fin_mois - stock_theorique;
+    const enteredSdu = sduRows.filter((row) => row.sdu.trim() !== "");
+    const sdu_fin_mois = enteredSdu.length === 0
+        ? null
+        : enteredSdu.reduce((sum, row) => sum + num(row.sdu), 0);
+    const ecart = sdu_fin_mois === null ? null : sdu_fin_mois - stock_theorique;
     const cmm = Math.round(num(form.cmm));
-    const msd = cmm ? Math.round((sdu_fin_mois / cmm) * 100) / 100 : 0;
-    const situation = computeSituation(msd);
+    const msd = sdu_fin_mois !== null && cmm ? Math.round((sdu_fin_mois / cmm) * 100) / 100 : 0;
+    const situation = sdu_fin_mois === null ? "" : computeSituation(msd);
     return {stock_theorique, ecart, sdu_fin_mois, cmm, msd, situation};
 }
 
@@ -284,12 +440,14 @@ function EditFieldGrid({
                            values,
                            computed,
                            observation,
+                           daysInMois,
                            onChange,
                            onObservationChange,
                        }: {
     values: FormState;
     computed: ComputedValues;
     observation: string;
+    daysInMois: number | null;
     onChange: (key: NumericFieldKey, value: string) => void;
     onObservationChange: (value: string) => void;
 }) {
@@ -301,12 +459,14 @@ function EditFieldGrid({
                         // Derived fields (stock_theorique, sdu_fin_mois, ecart, msd) get
                         // their live value from computeValues; CMMA is also derived
                         // (read-only here) but has no formula, so it just echoes whatever
-                        // value the line already has.
-                        const computedValue = (computed as Partial<Record<NumericFieldKey, number>>)[field.key];
-                        const raw = field.derived
-                            ? (computedValue !== undefined ? String(computedValue) : values[field.key])
+                        // value the line already has. A computed null is a real blank
+                        // (no Détail SDU yet), so it shows as one rather than as "null".
+                        const computedValue = (computed as Partial<Record<NumericFieldKey, number | null>>)[field.key];
+                        const raw = field.derived && computedValue !== undefined
+                            ? (computedValue === null ? "" : String(computedValue))
                             : values[field.key];
                         const parsed = raw.trim() === "" ? null : Number(raw);
+                        const errorText = field.derived ? null : fieldError(field, raw, values, daysInMois);
                         return (
                             <Grid size={4} key={field.key}>
                                 {field.derived ? (
@@ -318,11 +478,14 @@ function EditFieldGrid({
                                 ) : (
                                     <Box
                                         sx={{
-                                            borderLeft: `4px solid ${accentFor(field.kind, parsed)}`,
+                                            // A value that breaks the field's rule is no better
+                                            // than a blank one, so it gets the same red accent.
+                                            borderLeft: `4px solid ${errorText ? ACCENT_BLANK : accentFor(field.kind, parsed)}`,
                                             bgcolor: "grey.100",
                                             px: 2,
                                             py: 1,
                                             borderRadius: "0 4px 4px 0",
+                                            height: "100%",
                                         }}
                                     >
                                         <TextField
@@ -331,8 +494,18 @@ function EditFieldGrid({
                                             type="number"
                                             fullWidth
                                             value={raw}
+                                            error={Boolean(errorText)}
+                                            helperText={errorText ?? undefined}
                                             onChange={(e) => onChange(field.key, e.target.value)}
-                                            slotProps={{inputLabel: {shrink: true}}}
+                                            slotProps={{
+                                                inputLabel: {shrink: true},
+                                                // Undefined bounds render no attribute at all,
+                                                // leaving the field unconstrained.
+                                                htmlInput: {
+                                                    min: fieldMin(field, values)?.value,
+                                                    max: fieldMax(field, values, daysInMois)?.value,
+                                                },
+                                            }}
                                         />
                                     </Box>
                                 )}
@@ -373,20 +546,30 @@ interface EditableSduRow {
     date_peremption: string;
 }
 
-// An <input type="month"> only accepts an exact "YYYY-MM" value — trim any
+// An <input type="month"> only accepts an exact "YYYY-MM" value — trim anyx
 // day component from older "YYYY-MM-DD" records so the picker still shows it.
 function toMonthInputValue(value: string | null): string {
     return value ? value.slice(0, 7) : "";
+}
+
+// A row reporting no stock on hand has nothing that can expire, so its
+// péremption date is left empty and never asked for.
+function isZeroSdu(sdu: string): boolean {
+    const trimmed = sdu.trim();
+    return trimmed !== "" && Number(trimmed) === 0;
 }
 
 function detailSduToRows(entries: DetailSDU[]): EditableSduRow[] {
     return entries.map((d) => ({key: d.id, sdu: String(d.sdu), date_peremption: toMonthInputValue(d.date_peremption)}));
 }
 
-function SduMonthField({value, error, helperText, onChange}: {
+// minDate keeps the picker on the current month and later ones: a produit can
+// only expire from this month onwards, never in a month already past.
+function SduMonthField({value, error, helperText, disabled, onChange}: {
     value: string;
     error: boolean;
     helperText?: string;
+    disabled?: boolean;
     onChange: (value: string) => void;
 }) {
     return (
@@ -395,14 +578,19 @@ function SduMonthField({value, error, helperText, onChange}: {
             views={["year", "month"]}
             format="MM/YYYY"
             value={value ? dayjs(value, "YYYY-MM") : null}
+            disabled={disabled}
+            minDate={dayjs().startOf("month")}
             onChange={(newValue: Dayjs | null) => onChange(newValue?.isValid() ? newValue.format("YYYY-MM") : "")}
             slotProps={{
                 textField: {
                     variant: "standard",
                     fullWidth: true,
-                    required: true,
+                    required: !disabled,
                     error,
-                    helperText,
+                    // Always reserve the helper line so the field keeps one
+                    // height whether or not it has something to say, and the
+                    // row it sits in doesn't shift as the message appears.
+                    helperText: helperText ?? " ",
                 },
             }}
         />
@@ -430,11 +618,24 @@ function SduDetailsEditor({
                     <strong>+ Ajouter SDU</strong>
                 </Button>
             </Stack>
+            {/* SDU fin du mois has no other source, so say so here rather than
+                leaving the user to wonder why the line stays incomplete. */}
+            {!rows.some((row) => row.sdu.trim() !== "") && (
+                <Alert severity="info" sx={{mb: 1.5}}>
+                    Saisissez au moins un SDU : « SDU fin du mois » en est calculé, et la ligne reste incomplète tant
+                    qu'il est vide.
+                </Alert>
+            )}
             <Stack spacing={1.5}>
                 {rows.map((row) => {
-                    const dateMissing = row.sdu.trim() !== "" && row.date_peremption.trim() === "";
+                    const zeroSdu = isZeroSdu(row.sdu);
+                    const dateMissing = row.sdu.trim() !== "" && !zeroSdu && row.date_peremption.trim() === "";
+                    // Aligned from the top: both fields reserve a helper line,
+                    // so their labels, inputs and helper text sit on the same
+                    // three levels, and the delete button is nudged down onto
+                    // the inputs' own line.
                     return (
-                        <Stack key={row.key} direction="row" spacing={2} sx={{alignItems: "flex-end"}}>
+                        <Stack key={row.key} direction="row" spacing={2} sx={{alignItems: "flex-start"}}>
                             <TextField
                                 variant="standard"
                                 label="SDU"
@@ -442,16 +643,31 @@ function SduDetailsEditor({
                                 fullWidth
                                 value={row.sdu}
                                 onChange={(e) => onChange(row.key, "sdu", e.target.value)}
+                                helperText=" "
+                                slotProps={{inputLabel: {shrink: true}}}
                             />
                             <SduMonthField
                                 value={row.date_peremption}
                                 error={dateMissing}
-                                helperText={dateMissing ? "Date requise" : undefined}
+                                disabled={zeroSdu}
+                                helperText={dateMissing ? "Date requise" : zeroSdu ? "Sans objet pour un SDU à 0" : undefined}
                                 onChange={(value) => onChange(row.key, "date_peremption", value)}
                             />
-                            <IconButton size="small" onClick={() => onRemove(row.key)} aria-label="Supprimer ce SDU">
-                                <RemoveIcon fontSize="small"/>
-                            </IconButton>
+                            {/* Offset onto the inputs' own line: 16px is the
+                                standard TextField's gap between its shrunk
+                                label and its input, +1px to centre the 30px
+                                button on the 32px input. It has to be padding
+                                on a wrapper — Stack resets the margins of its
+                                direct children, so `mt` here would be dropped. */}
+                            <Box sx={{pt: "17px"}}>
+                                <IconButton
+                                    size="small"
+                                    onClick={() => onRemove(row.key)}
+                                    aria-label="Supprimer ce SDU"
+                                >
+                                    <RemoveIcon fontSize="small"/>
+                                </IconButton>
+                            </Box>
                         </Stack>
                     );
                 })}
@@ -471,6 +687,8 @@ interface EditLigneDialogProps {
     ligne: RapportHopitauxLigne | null;
     ligneId: string | null;
     previousSduFinMois: number | null;
+    // Length of the month this rapport covers, ceiling for nb_jour_rupture.
+    daysInMois: number | null;
     onSaved: (ligne: RapportHopitauxLigne, ligneId: string, detailSdu: DetailSDU[]) => void;
 }
 
@@ -484,6 +702,7 @@ function EditLigneDialog({
                              ligne,
                              ligneId,
                              previousSduFinMois,
+                             daysInMois,
                              onSaved
                          }: EditLigneDialogProps) {
     const {notifySuccess} = useNotification();
@@ -518,15 +737,31 @@ function EditLigneDialog({
         date_peremption: ""
     }]);
     const handleRemoveSdu = (key: string) => setSduRows((prev) => prev.filter((r) => r.key !== key));
+    // Dropping the SDU to 0 also drops any date already picked, so a disabled
+    // field never shows a value that wouldn't be saved.
     const handleSduChange = (key: string, field: "sdu" | "date_peremption", value: string) =>
-        setSduRows((prev) => prev.map((r) => (r.key === key ? {...r, [field]: value} : r)));
+        setSduRows((prev) =>
+            prev.map((r) => {
+                if (r.key !== key) return r;
+                const next = {...r, [field]: value};
+                return field === "sdu" && isZeroSdu(value) ? {...next, date_peremption: ""} : next;
+            }),
+        );
 
     const computed = computeValues(form, sduRows);
 
     const handleSave = async () => {
-        const missingDate = sduRows.some((row) => row.sdu.trim() !== "" && row.date_peremption.trim() === "");
+        const formError = firstFormError(form, daysInMois);
+        if (formError) {
+            setError(formError);
+            return;
+        }
+
+        const missingDate = sduRows.some(
+            (row) => row.sdu.trim() !== "" && !isZeroSdu(row.sdu) && row.date_peremption.trim() === "",
+        );
         if (missingDate) {
-            setError("Veuillez renseigner la date de péremption pour chaque SDU.");
+            setError("Veuillez renseigner la date de péremption pour chaque SDU non nul.");
             return;
         }
 
@@ -541,8 +776,16 @@ function EditLigneDialog({
             await saveDetailSdu(newLigneId, sduEntries);
             const savedSdu = await getDetailSdu(newLigneId);
             await refreshRapportFsStatus(rapportfsId);
+            // This month's SDU fin du mois is the next month's opening stock:
+            // carry the new figure forward so already-filled later months stop
+            // showing the superseded one.
+            const touched = await propagateQteDispoDebMois(rapportfsId, ppnId, computed.sdu_fin_mois);
             onSaved(newLigne, newLigneId, savedSdu);
-            notifySuccess("Ligne enregistrée.");
+            notifySuccess(
+                touched.length > 0
+                    ? `Ligne enregistrée. Quantité disponible au début du mois reportée sur ${touched.length} rapport(s) ultérieur(s).`
+                    : "Ligne enregistrée.",
+            );
             onClose();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -567,7 +810,8 @@ function EditLigneDialog({
                         <Typography component="span" color="text.secondary" variant={"body2"}>
                             SITUATION
                         </Typography>
-                        <Chip label={computed.situation} size="small" sx={{bgcolor: style.bg, color: style.color}}/>
+                        <Chip label={computed.situation || "—"} size="small"
+                              sx={{bgcolor: style.bg, color: style.color}}/>
                     </Stack>
                 </Stack>
             </DialogTitle>
@@ -577,6 +821,7 @@ function EditLigneDialog({
                         values={form}
                         computed={computed}
                         observation={observation}
+                        daysInMois={daysInMois}
                         onChange={handleChange}
                         onObservationChange={setObservation}
                     />
@@ -614,7 +859,11 @@ function EditLigneDialog({
     );
 }
 
-function ProduitRow({row, rapportfsId}: { row: RapportViewRow; rapportfsId: string }) {
+function ProduitRow({row, rapportfsId, daysInMois}: {
+    row: RapportViewRow;
+    rapportfsId: string;
+    daysInMois: number | null;
+}) {
     const [open, setOpen] = useState(false);
     const [editOpen, setEditOpen] = useState(false);
     const [ligne, setLigne] = useState(row.ligne);
@@ -712,13 +961,23 @@ function ProduitRow({row, rapportfsId}: { row: RapportViewRow; rapportfsId: stri
                 ligne={ligne}
                 ligneId={ligneId}
                 previousSduFinMois={row.previousSduFinMois}
+                daysInMois={daysInMois}
                 onSaved={handleSaved}
             />
         </>
     );
 }
 
-export default function RapportProgrammeTable({rows, rapportfsId}: { rows: RapportViewRow[]; rapportfsId: string }) {
+export default function RapportProgrammeTable({rows, rapportfsId, moisAnnee}: {
+    rows: RapportViewRow[];
+    rapportfsId: string;
+    // The rapport's own "YYYY-MM"; how long that month ran is the ceiling for
+    // the number of days a produit can have been en rupture.
+    moisAnnee: string | null;
+}) {
+    const ym = parseMoisAnnee(moisAnnee);
+    const daysInMois = ym ? daysInMonth(ym) : null;
+
     return (
         <TableContainer component={Paper} variant="outlined">
             <Table>
@@ -734,7 +993,7 @@ export default function RapportProgrammeTable({rows, rapportfsId}: { rows: Rappo
                 </TableHead>
                 <TableBody>
                     {rows.map((row) => (
-                        <ProduitRow key={row.ppnId} row={row} rapportfsId={rapportfsId}/>
+                        <ProduitRow key={row.ppnId} row={row} rapportfsId={rapportfsId} daysInMois={daysInMois}/>
                     ))}
                 </TableBody>
             </Table>

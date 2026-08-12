@@ -5,6 +5,11 @@ import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogActions from "@mui/material/DialogActions";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DeleteIcon from "@mui/icons-material/Delete";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
@@ -15,6 +20,9 @@ import {computeRollingCmm} from "../services/rapport-cmm-service.ts";
 import {exportRapportFsToUtglfs} from "../services/rapportfs-export-service.ts";
 import type {RapportHopitaux} from "../model/rapport-model.ts";
 import {useNotification} from "../../../notifications/notification-provider.tsx";
+import {getMyOrganisationUnit} from "../../organisation-units/organisation-units-service.ts";
+import {parseMoisAnnee} from "../../../utils/mois-annee.ts";
+import {formatMoisAnnee} from "../../../utils/date-format.ts";
 
 const emptySelection: GridRowSelectionModel = {type: "include", ids: new Set()};
 
@@ -28,6 +36,9 @@ function RapportTableList() {
     const [selectionModel, setSelectionModel] = useState<GridRowSelectionModel>(emptySelection);
     const [exporting, setExporting] = useState(false);
     const [exportMessage, setExportMessage] = useState<{ severity: "success" | "error"; text: string } | null>(null);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [fsName, setFsName] = useState<string | null>(null);
 
     const loadRows = useCallback(async () => {
         setLoading(true);
@@ -47,6 +58,14 @@ function RapportTableList() {
         loadRows();
     }, [loadRows]);
 
+    // The FS never changes while the page is mounted, so load its name once and
+    // leave the title without a suffix if it can't be read.
+    useEffect(() => {
+        getMyOrganisationUnit()
+            .then((unit) => setFsName(unit?.fs.name ?? null))
+            .catch(() => setFsName(null));
+    }, []);
+
     const selectedRow = useMemo(() => {
         if (selectionModel.type !== "include" || selectionModel.ids.size === 0) return null;
         const [id] = selectionModel.ids;
@@ -58,16 +77,19 @@ function RapportTableList() {
         navigate(`/rapport-view/${selectedRow.id}`);
     };
 
-    const handleDelete = async () => {
+    const handleConfirmDelete = async () => {
         if (!selectedRow) return;
-        if (!window.confirm("Supprimer ce rapport FS ?")) return;
+        setDeleting(true);
         try {
             await deleteRapportFs(selectedRow.id);
+            setConfirmDeleteOpen(false);
             setSelectionModel(emptySelection);
             await loadRows();
             notifySuccess("Rapport supprimé.");
         } catch (err) {
             notifyError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -76,7 +98,11 @@ function RapportTableList() {
         setExporting(true);
         setExportMessage(null);
         try {
-            const dest = await exportRapportFsToUtglfs(selectedRow.id, selectedRow.name);
+            const myOrganisationUnit = await getMyOrganisationUnit();
+            const moisAnnee = parseMoisAnnee(selectedRow.mois_annee);
+            const moisAnneeLabel = moisAnnee ? `${String(moisAnnee.month).padStart(2, "0")}-${moisAnnee.year}` : "-";
+            const suggestedName = `Rapport ${myOrganisationUnit?.sdsp.name ?? selectedRow.name} - ${moisAnneeLabel}`;
+            const dest = await exportRapportFsToUtglfs(selectedRow.id, suggestedName);
             if (dest) {
                 await markRapportFsExported(selectedRow.id);
                 await loadRows();
@@ -91,7 +117,7 @@ function RapportTableList() {
 
     return (
         <div>
-            <h3>Liste des rapports</h3>
+            <h3>{fsName ? `Liste des rapports - ${fsName}` : "Liste des rapports"}</h3>
 
             <Stack direction="row" sx={{justifyContent: "space-between", alignItems: "center", mb: 2}}>
                 <Button variant="contained" onClick={() => setAddOpen(true)}>+ Nouveau rapport</Button>
@@ -110,7 +136,7 @@ function RapportTableList() {
                         Exporter
                     </Button>
                     <Button variant="outlined" color="error" startIcon={<DeleteIcon/>} disabled={!selectedRow}
-                            onClick={handleDelete}>
+                            onClick={() => setConfirmDeleteOpen(true)}>
                         Supprimer
                     </Button>
                 </Stack>
@@ -129,7 +155,38 @@ function RapportTableList() {
                 selectionModel={selectionModel}
                 onSelectionModelChange={setSelectionModel}
             />
-            <RapportfsAddSheet open={addOpen} onClose={() => setAddOpen(false)}/>
+            <RapportfsAddSheet open={addOpen} onClose={() => setAddOpen(false)} filterMoisAnnee={rows}/>
+
+            <Dialog
+                open={confirmDeleteOpen}
+                onClose={() => {
+                    if (!deleting) setConfirmDeleteOpen(false);
+                }}
+                fullWidth
+                maxWidth="xs"
+            >
+                <DialogTitle>Supprimer ce rapport FS ?</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {selectedRow
+                            ? `Le rapport « ${selectedRow.name} » (${formatMoisAnnee(selectedRow.mois_annee)}) sera définitivement supprimé. Cette action est irréversible.`
+                            : "Cette action est irréversible."}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button variant="contained" onClick={() => setConfirmDeleteOpen(false)}
+                            disabled={deleting}>Annuler</Button>
+                    <Button
+                        variant="outlined"
+                        color="error"
+                        onClick={handleConfirmDelete}
+                        disabled={deleting}
+                        startIcon={deleting ? <CircularProgress size={16} color="inherit"/> : <DeleteIcon/>}
+                    >
+                        Supprimer
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </div>
     )
 }

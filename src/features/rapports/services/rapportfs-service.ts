@@ -100,7 +100,7 @@ export async function markRapportFsExported(id: string): Promise<void> {
 export async function createRapportFs(input: { fsId: string; moisAnnee: string }): Promise<string> {
     const db = await getDb();
     const id = generateUuid();
-    const name = `Rapport FS ${formatMoisAnnee(input.moisAnnee)}`;
+    const name = `Rapport Hopitaux ${formatMoisAnnee(input.moisAnnee)}`;
     await db.execute(
         `INSERT INTO rapportfs (id, name, created, exported_date, status, mois_annee, fs_id, edited_by)
          VALUES ($1, $2, $3, NULL, 0, $4, $5, NULL)`,

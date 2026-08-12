@@ -84,7 +84,11 @@ export default function RapportViewPage() {
                             ))}
                         </Tabs>
                     </Box>
-                    <RapportProgrammeTable rows={sections[tab].rows} rapportfsId={rapport.id}/>
+                    <RapportProgrammeTable
+                        rows={sections[tab].rows}
+                        rapportfsId={rapport.id}
+                        moisAnnee={rapport.mois_annee}
+                    />
                 </>
             )}
 

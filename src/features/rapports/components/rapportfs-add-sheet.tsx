@@ -1,4 +1,4 @@
-import {useEffect, useState} from "react";
+import {useEffect, useMemo, useState} from "react";
 import {useNavigate} from "react-router-dom";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
@@ -16,13 +16,16 @@ import {getMyOrganisationUnit} from "../../organisation-units/organisation-units
 import {createRapportFs, listRapportFs} from "../services/rapportfs-service.ts";
 import {computeRollingCmm} from "../services/rapport-cmm-service.ts";
 import {useNotification} from "../../../notifications/notification-provider.tsx";
+import type {RapportHopitaux} from "../model/rapport-model.ts";
+import {monthKey, parseMoisAnnee} from "../../../utils/mois-annee.ts";
 
 interface RapportfsAddSheetProps {
     open: boolean;
     onClose: () => void;
+    filterMoisAnnee?: RapportHopitaux[];
 }
 
-export default function RapportfsAddSheet({open, onClose}: RapportfsAddSheetProps) {
+export default function RapportfsAddSheet({open, onClose, filterMoisAnnee}: RapportfsAddSheetProps) {
     const navigate = useNavigate();
     const {notifySuccess} = useNotification();
     const [loading, setLoading] = useState(true);
@@ -31,6 +34,17 @@ export default function RapportfsAddSheet({open, onClose}: RapportfsAddSheetProp
     const [creating, setCreating] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [createError, setCreateError] = useState<string | null>(null);
+
+    // Months already covered by an existing rapport — "YYYY-MM" keys, since
+    // mois_annee is stored as either "YYYY-MM" or "YYYY-MM-DD".
+    const takenMonths = useMemo(() => {
+        const keys = new Set<string>();
+        for (const rapport of filterMoisAnnee ?? []) {
+            const parsed = parseMoisAnnee(rapport.mois_annee);
+            if (parsed) keys.add(monthKey(parsed));
+        }
+        return keys;
+    }, [filterMoisAnnee]);
 
     useEffect(() => {
         if (!open) return;
@@ -90,6 +104,8 @@ export default function RapportfsAddSheet({open, onClose}: RapportfsAddSheetProp
                                 setMoisAnnee(newValue?.isValid() ? newValue.format("YYYY-MM") : "")
                             }
                             slotProps={{textField: {fullWidth: true}}}
+                            maxDate={dayjs()}
+                            shouldDisableMonth={(month) => takenMonths.has(month.format("YYYY-MM"))}
                         />
                         {createError && <Alert severity="error">{createError}</Alert>}
                     </Box>
