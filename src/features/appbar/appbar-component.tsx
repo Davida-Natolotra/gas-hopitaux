@@ -16,7 +16,7 @@ const pages = [
     {label: 'Alertes', path: '/alertes'},
     {label: 'Rapports', path: '/rapports', activePrefixes: ['/rapport-view']},
     {label: 'Paramètres', path: '/parametres'},
-    {label: 'Aide', path: '/help'},
+    {label: 'A propos', path: '/help'},
 ];
 
 function isPageActive(page: (typeof pages)[number], pathname: string): boolean {

@@ -79,7 +79,7 @@ export default function RapportfsAddSheet({open, onClose, filterMoisAnnee}: Rapp
 
     return (
         <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
-            <DialogTitle>Nouveau rapport FS</DialogTitle>
+            <DialogTitle>Nouveau rapport hopitaux</DialogTitle>
             <DialogContent>
                 {loading ? (
                     <Box sx={{display: "flex", justifyContent: "center", p: 2}}>

@@ -4,13 +4,16 @@ import Container from "@mui/material/Container";
 import Divider from "@mui/material/Divider";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import logoDataFi from "../../assets/Logo_DataFi.png";
+import logoDataFi from "../../assets/Logo Dos DataFi_little.png";
 import logoDplmt from "../../assets/Logo_DPLMT.png";
+import logoMinsanp from "../../assets/Logo_Minsanp.jpg";
 
-// Intrinsic aspect ratios, so each logo keeps its shape while the height scales
-// down on narrow screens.
-const DPLMT_RATIO = "960 / 752";
-const DATAFI_RATIO = "191 / 107";
+// Intrinsic pixel dimensions of the imported files, so each logo keeps its shape
+// while the height scales down on narrow screens. Swapping an asset means
+// updating the matching ratio — otherwise the logo is stretched.
+const MINSANP_RATIO = "1268 / 1280"; // Logo_Minsanp.jpg
+const DPLMT_RATIO = "960 / 752"; // Logo_DPLMT.png
+const USG_DATAFI_RATIO = "871 / 171"; // Logo Dos DataFi_little.png
 
 // Every height-driving dimension below is its full-size value times this factor.
 // Lower it to make the bar shorter; the logos keep their aspect ratio either way.
@@ -76,18 +79,36 @@ const FooterComponent = () => {
                         textAlign: "center",
                     }}
                 >
-                    <Box
-                        component="img"
-                        src={logoDplmt}
-                        alt="Logo DPLMT"
-                        sx={{
-                            height: {xs: 56 * SCALE, sm: 72 * SCALE, md: 107 * SCALE},
-                            aspectRatio: DPLMT_RATIO,
-                            width: "auto",
-                            maxWidth: "100%",
-                            flexShrink: 0,
-                        }}
-                    />
+                    <Stack
+                        direction="row"
+                        spacing={2 * SCALE}
+                        sx={{alignItems: "center", flexShrink: 0}}
+                    >
+                        <Box
+                            component="img"
+                            src={logoMinsanp}
+                            alt="Logo Ministère de la Santé Publique"
+                            sx={{
+                                height: {xs: 56 * SCALE, sm: 72 * SCALE, md: 107 * SCALE},
+                                aspectRatio: MINSANP_RATIO,
+                                width: "auto",
+                                maxWidth: "100%",
+                                flexShrink: 0,
+                            }}
+                        />
+                        <Box
+                            component="img"
+                            src={logoDplmt}
+                            alt="Logo DPLMT"
+                            sx={{
+                                height: {xs: 56 * SCALE, sm: 72 * SCALE, md: 107 * SCALE},
+                                aspectRatio: DPLMT_RATIO,
+                                width: "auto",
+                                maxWidth: "100%",
+                                flexShrink: 0,
+                            }}
+                        />
+                    </Stack>
 
                     <Box sx={{minWidth: 0}}>
                         <Typography variant="body2" color="text.secondary">
@@ -103,10 +124,10 @@ const FooterComponent = () => {
                     <Box
                         component="img"
                         src={logoDataFi}
-                        alt="Logo Data.Fi"
+                        alt="Gouvernement des États-Unis d'Amérique — projet Data.Fi"
                         sx={{
                             height: {xs: 40 * SCALE, sm: 56 * SCALE, md: 107 * SCALE},
-                            aspectRatio: DATAFI_RATIO,
+                            aspectRatio: USG_DATAFI_RATIO,
                             width: "auto",
                             maxWidth: "100%",
                             flexShrink: 0,
