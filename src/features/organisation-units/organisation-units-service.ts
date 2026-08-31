@@ -13,6 +13,27 @@ export async function listOrganisationUnits(): Promise<OrganisationUnit[]> {
     );
 }
 
+/**
+ * The organisation-unit group this build collects for. Membership of it — not
+ * anything in the unit's name — is what makes a facility a hospital: the export
+ * mixes CHRR/CHRD2/HP/clinique naming, and other builds (utgl-csb) select on
+ * their own group the same way.
+ */
+export const HOPITAUX_GROUP_NAME = "HOPITAUX";
+
+/** Ids of the organisation units belonging to the HOPITAUX group. */
+export async function listHopitauxUnitIds(): Promise<string[]> {
+    const db = await getDb();
+    const rows = await db.select<{ ou_id: string }[]>(
+        `SELECT m.ou_id
+         FROM organisation_unit_group_member m
+                  JOIN organisation_unit_group g ON g.id = m.group_id
+         WHERE g.name = $1`,
+        [HOPITAUX_GROUP_NAME],
+    );
+    return rows.map((row) => row.ou_id);
+}
+
 interface MyOrganisationUnitRow {
     drsp_id: string;
     drsp_name: string;
@@ -84,13 +105,22 @@ export async function saveMyOrganisationUnit(input: {
  * whose org_group the saved FS belongs to (via organisation_unit_group_member).
  * Must be re-run whenever the saved FS changes or produit_programme_niveau /
  * organisation_unit_group_member are replaced by a config import.
+ *
+ * `active`/`archived_at` are copied across rather than left to the column
+ * defaults. This is a DELETE-then-INSERT, so defaulting them would silently
+ * un-retire every withdrawn produit each time it runs — harmless during a config
+ * import, where applyTombstones re-marks them immediately afterwards, but not
+ * when the FS is changed, which calls this on its own. A produit the server has
+ * withdrawn would have come back into collection with nothing to show for it.
  */
 export async function refreshMyProduitProgrammeNiveau(): Promise<void> {
     const db = await getDb();
     await db.execute("DELETE FROM my_produitprogrammeniveau");
     await db.execute(
-        `INSERT INTO my_produitprogrammeniveau (id, produit_id, programme_id, org_group_id, org_group_name, "order")
-         SELECT ppn.id, ppn.produit_id, ppn.programme_id, ppn.org_group_id, ppn.org_group_name, ppn."order"
+        `INSERT INTO my_produitprogrammeniveau (id, produit_id, programme_id, org_group_id, org_group_name,
+                                                "order", active, archived_at)
+         SELECT ppn.id, ppn.produit_id, ppn.programme_id, ppn.org_group_id, ppn.org_group_name,
+                ppn."order", ppn.active, ppn.archived_at
          FROM produit_programme_niveau ppn
          WHERE ppn.org_group_id IN (SELECT group_id
                                      FROM organisation_unit_group_member
@@ -133,6 +163,10 @@ interface ProduitProgrammeRow {
 
 // The saved FS's applicable produits (my_produitprogrammeniveau), grouped by
 // programme — used to show what a config import actually configured.
+//
+// Withdrawn rows are left out: this is the list of what to report, and a produit
+// the configuration has retired is not reported any more. It stays visible only
+// where it was already captured, on the reports themselves.
 export async function listMyProduitsByProgramme(): Promise<ProgrammeProduits[]> {
     const db = await getDb();
     const rows = await db.select<ProduitProgrammeRow[]>(
@@ -145,6 +179,7 @@ export async function listMyProduitsByProgramme(): Promise<ProgrammeProduits[]> 
          FROM my_produitprogrammeniveau mppn
                   JOIN produit p ON p.id = mppn.produit_id
                   JOIN programme pr ON pr.id = mppn.programme_id
+         WHERE mppn.active = 1
          ORDER BY pr.name, (mppn."order" IS NULL), mppn."order", p.name`,
     );
 

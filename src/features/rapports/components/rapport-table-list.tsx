@@ -15,13 +15,12 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import FileDownloadIcon from "@mui/icons-material/FileDownload";
 import TableList from "./table-list.tsx";
 import RapportfsAddSheet from "./rapportfs-add-sheet.tsx";
-import {deleteRapportFs, listRapportFs, markRapportFsExported} from "../services/rapportfs-service.ts";
+import {deleteRapportFs, listRapportFs} from "../services/rapportfs-service.ts";
 import {computeRollingCmm} from "../services/rapport-cmm-service.ts";
 import {exportRapportFsToUtglfs} from "../services/rapportfs-export-service.ts";
 import type {RapportHopitaux} from "../model/rapport-model.ts";
 import {useNotification} from "../../../notifications/notification-provider.tsx";
 import {getMyOrganisationUnit} from "../../organisation-units/organisation-units-service.ts";
-import {parseMoisAnnee} from "../../../utils/mois-annee.ts";
 import {formatMoisAnnee} from "../../../utils/date-format.ts";
 
 const emptySelection: GridRowSelectionModel = {type: "include", ids: new Set()};
@@ -98,13 +97,11 @@ function RapportTableList() {
         setExporting(true);
         setExportMessage(null);
         try {
-            const myOrganisationUnit = await getMyOrganisationUnit();
-            const moisAnnee = parseMoisAnnee(selectedRow.mois_annee);
-            const moisAnneeLabel = moisAnnee ? `${String(moisAnnee.month).padStart(2, "0")}-${moisAnnee.year}` : "-";
-            const suggestedName = `Rapport ${myOrganisationUnit?.sdsp.name ?? selectedRow.name} - ${moisAnneeLabel}`;
-            const dest = await exportRapportFsToUtglfs(selectedRow.id, suggestedName);
+            // exportRapportFsToUtglfs stamps exported_date itself, before it builds
+            // the file — stamping from here left the file carrying the *previous*
+            // export's date (null on a first export). loadRows() picks the new stamp up.
+            const dest = await exportRapportFsToUtglfs(selectedRow.id);
             if (dest) {
-                await markRapportFsExported(selectedRow.id);
                 await loadRows();
                 setExportMessage({severity: "success", text: `Rapport exporté : ${dest}`});
             }

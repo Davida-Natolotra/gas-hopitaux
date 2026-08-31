@@ -903,10 +903,11 @@ function ProduitRow({row, rapportfsId, daysInMois}: {
                 <TableCell>
                     <Stack direction="row" spacing={1} sx={{alignItems: "center"}}>
                         <span>{row.produitName}</span>
-                        {/* This produit has been withdrawn from the configuration
-                            since. It is shown because this report was collected
-                            against it — marked so it is not mistaken for
-                            something still expected. */}
+                        {/* Withdrawn from the configuration since this report
+                            captured it. The line is kept exactly as it was saisi
+                            — only reports that already hold one still show the
+                            produit at all — and marked so it is not mistaken for
+                            something still being collected. */}
                         {row.archived && (
                             <Chip
                                 label="Retiré"

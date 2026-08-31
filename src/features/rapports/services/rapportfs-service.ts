@@ -89,12 +89,19 @@ export async function deleteRapportFs(id: string): Promise<void> {
     await db.execute("DELETE FROM rapportfs WHERE id = $1", [id]);
 }
 
-// Stamps exported_date once this rapportfs has actually been exported as a
-// standalone file (see rapportfs-export-service.ts) — null means it never
-// has been.
+// Stamps exported_date when this rapportfs is exported as a standalone file —
+// null means it never has been. Called by exportRapportFsToUtglfs *before* it
+// builds the payload, so the date lands in the exported file too rather than
+// only in the local table; do not call it after an export instead.
 export async function markRapportFsExported(id: string): Promise<void> {
+    await setRapportFsExportedDate(id, new Date().toISOString());
+}
+
+// The unrestricted form of markRapportFsExported, for putting the previous value
+// back when an export is stamped and then fails before anything reaches the disk.
+export async function setRapportFsExportedDate(id: string, exportedDate: string | null): Promise<void> {
     const db = await getDb();
-    await db.execute("UPDATE rapportfs SET exported_date = $1 WHERE id = $2", [new Date().toISOString(), id]);
+    await db.execute("UPDATE rapportfs SET exported_date = $1 WHERE id = $2", [exportedDate, id]);
 }
 
 export async function createRapportFs(input: { fsId: string; moisAnnee: string }): Promise<string> {

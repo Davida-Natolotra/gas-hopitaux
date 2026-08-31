@@ -13,9 +13,9 @@ export interface RapportViewRow {
     // rapportfs (same fs_id), when one exists. Used to default the new
     // month's qte_dispo_deb_mois when this produit hasn't been reported yet.
     previousSduFinMois: number | null;
-    // Withdrawn from the configuration since. Shown only where it belongs (see
-    // getProgrammeSections), and worth marking so the row is not mistaken for
-    // something still being collected.
+    // Withdrawn from the configuration this device has installed. Only rows this
+    // report has already captured can be in this state (see getProgrammeSections),
+    // and they are marked so they are not mistaken for something still collected.
     archived: boolean;
 }
 
@@ -108,13 +108,18 @@ async function findPreviousConsecutiveRapportfsId(rapportfsId: string): Promise<
 // suggested qte_dispo_deb_mois for produits not yet reported this month.
 // Archived produits. A produit withdrawn from the configuration must stop being
 // offered for new collection without disappearing from what has already been
-// collected — a report has to stay readable exactly as it was filled in. Three
+// collected — a report has to stay readable exactly as it was filled in. Two
 // cases are therefore kept, and only those:
 //
-//   * the produit is still active;
-//   * this report already has a line for it, whatever its state now;
-//   * this report is for a month that ended before the produit was withdrawn,
-//     so it *should* carry it even if nobody has typed the figures in yet.
+//   * the produit is still active in the installed configuration;
+//   * this report already has a line for it, whatever its state now.
+//
+// What decides this is the configuration the device holds, not the report's
+// month. Once a version arrives that withdraws a produit, it is gone from every
+// report that has not already captured it — including a report opened now for
+// an earlier month, which is new collection like any other. Reports that did
+// capture it keep their line untouched and simply carry the "Retiré" mark, so
+// `archived` here is the plain configuration flag.
 //
 // The labels come from the line where there is one, and from the configuration
 // only for rows not yet filled in. Reading them from the join instead would let
@@ -154,8 +159,6 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
                             ON prev_l.produit_programme_niveau_id = mppn.id AND prev_l.rapportfs_id = $2
          WHERE mppn.active = 1
             OR l.id IS NOT NULL
-            OR (mppn.archived_at IS NOT NULL
-                AND (SELECT mois_annee FROM rapportfs WHERE id = $1) < substr(mppn.archived_at, 1, 7))
          ORDER BY pr.name, (mppn."order" IS NULL), mppn."order", p.name`,
         [rapportfsId, previousRapportfsId ?? ""],
     );

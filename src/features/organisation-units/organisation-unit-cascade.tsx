@@ -8,13 +8,19 @@ import CircularProgress from "@mui/material/CircularProgress";
 import Alert from "@mui/material/Alert";
 import Typography from "@mui/material/Typography";
 import type {OrganisationUnit} from "./organisation-unit-model.ts";
-import {getMyOrganisationUnit, listOrganisationUnits, saveMyOrganisationUnit} from "./organisation-units-service.ts";
+import {
+    getMyOrganisationUnit,
+    listHopitauxUnitIds,
+    listOrganisationUnits,
+    saveMyOrganisationUnit,
+} from "./organisation-units-service.ts";
 
 const unitLabel = (unit: OrganisationUnit | null) => unit?.name ?? "";
 const sameUnit = (a: OrganisationUnit, b: OrganisationUnit) => a.id === b.id;
 
 export default function OrganisationUnitCascade() {
     const [allUnits, setAllUnits] = useState<OrganisationUnit[]>([]);
+    const [hopitalIds, setHopitalIds] = useState<Set<string>>(() => new Set());
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -29,8 +35,13 @@ export default function OrganisationUnitCascade() {
             setLoading(true);
             setError(null);
             try {
-                const [units, saved] = await Promise.all([listOrganisationUnits(), getMyOrganisationUnit()]);
+                const [units, hopitaux, saved] = await Promise.all([
+                    listOrganisationUnits(),
+                    listHopitauxUnitIds(),
+                    getMyOrganisationUnit(),
+                ]);
                 setAllUnits(units);
+                setHopitalIds(new Set(hopitaux));
                 if (saved) {
                     setDrsp(saved.drsp);
                     setSdsp(saved.sdsp);
@@ -57,13 +68,14 @@ export default function OrganisationUnitCascade() {
     );
     // FS options are grouped by commune, across every commune of the selected
     // district — mirroring utgl-csb, so an FS can be picked regardless of
-    // which commune it belongs to.
+    // which commune it belongs to. Hospitals are those in the HOPITAUX
+    // organisation-unit group.
     const {fsOptions, fsCommuneNames} = useMemo(() => {
         const names = new Map<string, string>();
         const list: OrganisationUnit[] = [];
         for (const c of communeOptions) {
             for (const u of allUnits) {
-                if (u.level === 5 && u.parent_id === c.id && u.name.includes("CH") && !u.name.includes("CHRD1")) {
+                if (u.level === 5 && u.parent_id === c.id && hopitalIds.has(u.id)) {
                     names.set(u.id, c.name);
                     list.push(u);
                 }
@@ -71,7 +83,7 @@ export default function OrganisationUnitCascade() {
         }
         list.sort((a, b) => names.get(a.id)!.localeCompare(names.get(b.id)!) || a.name.localeCompare(b.name));
         return {fsOptions: list, fsCommuneNames: names};
-    }, [allUnits, communeOptions]);
+    }, [allUnits, communeOptions, hopitalIds]);
 
     const handleDrspChange = (unit: OrganisationUnit | null) => {
         setDrsp(unit);

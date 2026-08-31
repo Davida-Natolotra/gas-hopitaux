@@ -3,8 +3,43 @@ import {save} from "@tauri-apps/plugin-dialog";
 import {writeFile} from "@tauri-apps/plugin-fs";
 import {getDb} from "../../../services/db.ts";
 import {stampReportWithConfigVersion} from "../../configuration/services/config-version-service.ts";
+import {markRapportFsExported, setRapportFsExportedDate} from "./rapportfs-service.ts";
+import {getMyOrganisationUnit} from "../../organisation-units/organisation-units-service.ts";
+import {parseMoisAnnee} from "../../../utils/mois-annee.ts";
 
 const UTGLFS_FILTERS = [{name: "Export UTGL FS", extensions: ["utglhp"]}];
+
+// The names come from the server's configuration, so they can carry anything;
+// what reaches the save dialog is a path, and these are the characters Windows
+// refuses in one. Trailing dots and spaces go the same way.
+const sanitiseNamePart = (part: string) =>
+    part.replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().replace(/\.+$/, "").trim();
+
+// "07-2026", not formatMoisAnnee's "07/2026": this one ends up in a file name,
+// where a slash is a path separator rather than a character.
+function moisAnneeForFileName(moisAnnee: string | null): string | null {
+    const parsed = parseMoisAnnee(moisAnnee);
+    return parsed ? `${String(parsed.month).padStart(2, "0")}-${parsed.year}` : null;
+}
+
+/**
+ * The file name proposed for an export:
+ * "Rapport - <mois-année> - <district> - <FS>".
+ *
+ * A part that can't be read is left out rather than leaving an empty segment
+ * behind, so a report with no month, or a device with no organisation unit
+ * saved, still gets a usable name instead of "Rapport -  -  - ".
+ */
+export function buildExportFileName(
+    moisAnnee?: string | null,
+    sdspName?: string | null,
+    fsName?: string | null,
+): string {
+    return ["Rapport", moisAnneeForFileName(moisAnnee ?? null), sdspName, fsName]
+        .map((part) => (part ? sanitiseNamePart(part) : ""))
+        .filter((part) => part.length > 0)
+        .join(" - ");
+}
 
 interface MyProduitProgrammeNiveauRow {
     id: string;
@@ -148,10 +183,21 @@ function base64ToBytes(base64: string): Uint8Array {
 // — on Android/iOS, the path the save dialog returns is a content:// SAF URI,
 // not a real filesystem path, and plain std::fs can't write to that. The fs
 // plugin knows how to handle both real paths and SAF URIs.
-export async function exportRapportFsToUtglfs(rapportfsId: string, suggestedName: string): Promise<string | null> {
+export async function exportRapportFsToUtglfs(rapportfsId: string): Promise<string | null> {
+    const db = await getDb();
+    const [rapport] = await db.select<{ mois_annee: string | null; exported_date: string | null }[]>(
+        "SELECT mois_annee, exported_date FROM rapportfs WHERE id = $1",
+        [rapportfsId],
+    );
+    const myOrganisationUnit = await getMyOrganisationUnit();
+    const fileName = buildExportFileName(
+        rapport?.mois_annee,
+        myOrganisationUnit?.sdsp.name,
+        myOrganisationUnit?.fs.name,
+    );
     const dest = await save({
         title: "Exporter le rapport",
-        defaultPath: `${suggestedName}.utglhp`,
+        defaultPath: `${fileName}.utglhp`,
         filters: UTGLFS_FILTERS,
     });
     if (!dest) return null;
@@ -161,8 +207,23 @@ export async function exportRapportFsToUtglfs(rapportfsId: string, suggestedName
     // started and being sent, and what the server needs is the version the
     // figures in the file were actually entered against.
     await stampReportWithConfigVersion(rapportfsId);
-    const payload = await buildExportPayload(rapportfsId);
-    const base64 = await invoke<string>("export_utglfs", {payload});
-    await writeFile(dest, base64ToBytes(base64));
+    // Same reason, and the same order matters just as much: buildExportPayload
+    // reads exported_date straight out of the table, so stamping afterwards
+    // shipped `exported_date: null` on every first export — the server then had
+    // nothing to show under "Date d'export" and counted the report as never
+    // prompt. Safe here because the save dialog has already been answered:
+    // a cancelled export returned above without stamping anything.
+    await markRapportFsExported(rapportfsId);
+    try {
+        const payload = await buildExportPayload(rapportfsId);
+        const base64 = await invoke<string>("export_utglfs", {payload});
+        await writeFile(dest, base64ToBytes(base64));
+    } catch (err) {
+        // Nothing reached the disk, so put the previous date back rather than
+        // leaving a report claiming an export that never happened — the stamp is
+        // what the list, and eventually the server's promptitude, both read.
+        await setRapportFsExportedDate(rapportfsId, rapport?.exported_date ?? null);
+        throw err;
+    }
     return dest;
 }
