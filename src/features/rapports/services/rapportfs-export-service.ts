@@ -106,6 +106,9 @@ interface RapportfsLigneRow {
     produit_code: string;
     produit_name: string;
     produit_unit: string;
+    /** The server id of that unit (configuration schema 6); null on a line filled in
+     *  before, which the server matches by `produit_unit` instead. */
+    produit_unit_id: string | null;
     programme_name: string;
 }
 
@@ -150,7 +153,7 @@ async function buildExportPayload(rapportfsId: string): Promise<UtglfsExportPayl
         `SELECT id, rapportfs_id, produit_programme_niveau_id, qte_dispo_deb_mois, qte_rec_mois,
                 qte_dist_patient, qte_perime_avarie_mois, qte_redepl_mois, nb_jour_rupture,
                 stock_theorique, sdu_fin_mois, ecart, cmm, cmma, msd, situation, observation,
-                produit_code, produit_name, produit_unit, programme_name
+                produit_code, produit_name, produit_unit, produit_unit_id, programme_name
          FROM rapportfs_ligne
          WHERE rapportfs_id = $1`,
         [rapportfsId],

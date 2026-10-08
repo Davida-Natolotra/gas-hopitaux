@@ -1,4 +1,11 @@
 import {getDb} from "../../services/db.ts";
+import {
+    APP_GAS_HOPITAUX,
+    inAppRoster,
+    legacyPpnAppliesTo,
+    niveauLabel,
+    ppnAppliesTo,
+} from "../configuration/services/applicability.ts";
 import type {MyOrganisationUnit, OrganisationUnit} from "./organisation-unit-model.ts";
 
 // Levels: 1=pays, 2=DRSP/région, 3=SDSP/district, 4=commune, 5=FS. Level 6+
@@ -14,22 +21,20 @@ export async function listOrganisationUnits(): Promise<OrganisationUnit[]> {
 }
 
 /**
- * The organisation-unit group this build collects for. Membership of it — not
- * anything in the unit's name — is what makes a facility a hospital: the export
- * mixes CHRR/CHRD2/HP/clinique naming, and other builds (utgl-csb) select on
- * their own group the same way.
+ * Ids of GAS-Hôpitaux's roster — the members of the categories the server's
+ * Assignation gives it (HOPITAUX by default): the facilities this build collects
+ * for. Membership, not anything in the unit's name, is what makes a facility
+ * a hospital: the export mixes CHRR/CHRD2/HP/clinique naming. It is also a
+ * category produits are configured for, so the facilities offered here are those
+ * the configuration has produits for.
  */
-export const HOPITAUX_GROUP_NAME = "HOPITAUX";
-
-/** Ids of the organisation units belonging to the HOPITAUX group. */
 export async function listHopitauxUnitIds(): Promise<string[]> {
     const db = await getDb();
     const rows = await db.select<{ ou_id: string }[]>(
         `SELECT m.ou_id
-         FROM organisation_unit_group_member m
-                  JOIN organisation_unit_group g ON g.id = m.group_id
-         WHERE g.name = $1`,
-        [HOPITAUX_GROUP_NAME],
+         FROM category_member m
+                  JOIN category c ON c.id = m.category_id
+         WHERE ${inAppRoster("c", APP_GAS_HOPITAUX)}`,
     );
     return rows.map((row) => row.ou_id);
 }
@@ -101,10 +106,14 @@ export async function saveMyOrganisationUnit(input: {
 }
 
 /**
- * Rebuilds my_produitprogrammeniveau: the subset of produit_programme_niveau
- * whose org_group the saved FS belongs to (via organisation_unit_group_member).
- * Must be re-run whenever the saved FS changes or produit_programme_niveau /
- * organisation_unit_group_member are replaced by a config import.
+ * Rebuilds my_produitprogrammeniveau: the produits the saved hospital owes — those
+ * configured for any category it is a member of: HOPITAUX, and CDT, CR, … when it
+ * is one too, e.g. TB produits for a hospital that is a CDT (see
+ * configuration/services/applicability.ts). Each row's niveau is relabelled with
+ * the categories it reaches the hospital through ("HOPITAUX", "CDT"). Rows from before configuration schema 4
+ * stay under their old group rule, archived, so reports captured against them
+ * keep their lines. Must be re-run whenever the saved FS changes or the
+ * configuration is re-imported.
  *
  * `active`/`archived_at` are copied across rather than left to the column
  * defaults. This is a DELETE-then-INSERT, so defaulting them would silently
@@ -119,17 +128,17 @@ export async function refreshMyProduitProgrammeNiveau(): Promise<void> {
     await db.execute(
         `INSERT INTO my_produitprogrammeniveau (id, produit_id, programme_id, org_group_id, org_group_name,
                                                 "order", active, archived_at)
-         SELECT ppn.id, ppn.produit_id, ppn.programme_id, ppn.org_group_id, ppn.org_group_name,
+         SELECT ppn.id, ppn.produit_id, ppn.programme_id, ppn.org_group_id,
+                ${niveauLabel("ppn", "SELECT fs_id FROM my_organisation_unit WHERE id = 1")},
                 ppn."order", ppn.active, ppn.archived_at
          FROM produit_programme_niveau ppn
-         WHERE ppn.org_group_id IN (SELECT group_id
-                                     FROM organisation_unit_group_member
-                                     WHERE ou_id = (SELECT fs_id FROM my_organisation_unit WHERE id = 1))`,
+         WHERE ${ppnAppliesTo("ppn", "(SELECT fs_id FROM my_organisation_unit WHERE id = 1)")}
+            OR ${legacyPpnAppliesTo("ppn", "(SELECT fs_id FROM my_organisation_unit WHERE id = 1)")}`,
     );
 }
 
 // Used by the startup routing check: whether the saved FS actually has any
-// applicable produits yet (i.e. a config was imported and matches its group).
+// applicable produits yet (i.e. a config was imported and matches its type).
 export async function hasAnyMyProduitProgrammeNiveau(): Promise<boolean> {
     const db = await getDb();
     const rows = await db.select<unknown[]>("SELECT 1 FROM my_produitprogrammeniveau LIMIT 1");
@@ -145,9 +154,9 @@ export interface ProduitSummary {
 export interface ProgrammeProduits {
     programmeId: string;
     programmeName: string;
-    // Distinct organisation-unit-group names (the "niveau") the saved FS
-    // belongs to that this programme's produits apply to — usually one, but
-    // an FS can be a member of more than one group.
+    // Distinct niveaux of this programme's produits for the saved hospital: the
+    // categories it reports them through ("HOPITAUX", "CDT"). A hospital can
+    // belong to several categories.
     niveaux: string[];
     produits: ProduitSummary[];
 }
@@ -174,10 +183,12 @@ export async function listMyProduitsByProgramme(): Promise<ProgrammeProduits[]> 
                 pr.name             AS programme_name,
                 mppn.id             AS ppn_id,
                 p.name              AS produit_name,
-                p.unit              AS produit_unit,
+                COALESCE(fppn.report_unit, p.unit) AS produit_unit,
                 mppn.org_group_name AS org_group_name
          FROM my_produitprogrammeniveau mppn
                   JOIN produit p ON p.id = mppn.produit_id
+                  -- The unit this app reports the row in: on the full row, which the import sets.
+                  LEFT JOIN produit_programme_niveau fppn ON fppn.id = mppn.id
                   JOIN programme pr ON pr.id = mppn.programme_id
          WHERE mppn.active = 1
          ORDER BY pr.name, (mppn."order" IS NULL), mppn."order", p.name`,

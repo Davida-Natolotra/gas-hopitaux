@@ -54,6 +54,24 @@ pub fn run() {
             sql: include_str!("../migrations/0007_config_versioning.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "facility_type_category",
+            sql: include_str!("../migrations/0008_facility_type_category.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 9,
+            description: "category_only",
+            sql: include_str!("../migrations/0009_category_only.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 10,
+            description: "produit_units",
+            sql: include_str!("../migrations/0010_produit_units.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

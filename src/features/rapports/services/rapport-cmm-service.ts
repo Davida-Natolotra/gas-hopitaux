@@ -74,9 +74,16 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
         const cmm = Math.round(sommeTotale / 3);
         const cmma = totalRupture > 0 ? (sommeTotale * 30) / (90 - totalRupture) : null;
 
+        // A line this creates is labelled like one saveRapportFsLigne creates — its
+        // unit above all: the server reads the line's quantities in it.
         const result = await db.execute(
-            `INSERT INTO rapportfs_ligne (id, rapportfs_id, produit_programme_niveau_id, cmm, cmma)
-             VALUES ($1, $2, $3, $4, $5)
+            `INSERT INTO rapportfs_ligne (id, rapportfs_id, produit_programme_niveau_id, cmm, cmma,
+                                          produit_code, produit_name, produit_unit, produit_unit_id, programme_name)
+             SELECT $1, $2, $3, $4, $5, COALESCE(p.code, ''), p.name, COALESCE(ppn.report_unit, p.unit), ppn.report_unit_id, pr.name
+             FROM produit_programme_niveau ppn
+                      JOIN produit p ON p.id = ppn.produit_id
+                      JOIN programme pr ON pr.id = ppn.programme_id
+             WHERE ppn.id = $3
              ON CONFLICT(rapportfs_id, produit_programme_niveau_id) DO UPDATE SET
                  cmm  = excluded.cmm,
                  cmma = excluded.cmma`,

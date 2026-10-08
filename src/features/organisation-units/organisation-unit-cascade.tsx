@@ -68,8 +68,8 @@ export default function OrganisationUnitCascade() {
     );
     // FS options are grouped by commune, across every commune of the selected
     // district — mirroring utgl-csb, so an FS can be picked regardless of
-    // which commune it belongs to. Hospitals are those in the HOPITAUX
-    // organisation-unit group.
+    // which commune it belongs to. Hospitals are the members of the HOPITAUX
+    // category.
     const {fsOptions, fsCommuneNames} = useMemo(() => {
         const names = new Map<string, string>();
         const list: OrganisationUnit[] = [];

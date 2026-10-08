@@ -54,21 +54,36 @@ export function verifyDatabase(db) {
     // my_produitprogrammeniveau is a materialised view of a query
     // (refreshMyProduitProgrammeNiveau); if the seeded copy has drifted from it,
     // the report pages and the completeness check disagree about what this FS
-    // even collects.
+    // even collects. The rule is restated here in SQL, independently of the
+    // seeder's JavaScript copy of it: rows configured for a category the FS is a
+    // member of — each labelled with those categories.
+    const fs = "(SELECT fs_id FROM my_organisation_unit WHERE id = 1)";
     const expectedMyPpn = all(
-        `SELECT ppn.id
+        `SELECT ppn.id,
+                (SELECT group_concat(name, ', ')
+                 FROM (SELECT c.name
+                       FROM produit_programme_niveau_category pc
+                                JOIN category c ON c.id = pc.category_id
+                                JOIN category_member cm ON cm.category_id = c.id AND cm.ou_id = ${fs}
+                       WHERE pc.ppn_id = ppn.id
+                       ORDER BY c.name)) AS niveau
          FROM produit_programme_niveau ppn
-         WHERE ppn.org_group_id IN (SELECT group_id
-                                    FROM organisation_unit_group_member
-                                    WHERE ou_id = (SELECT fs_id FROM my_organisation_unit WHERE id = 1))`,
-    ).map((row) => row.id);
-    const actualMyPpn = all("SELECT id FROM my_produitprogrammeniveau").map((row) => row.id);
-    const expectedSet = new Set(expectedMyPpn);
-    const actualSet = new Set(actualMyPpn);
-    check(results, "my_produitprogrammeniveau reflète l'appartenance de la FS aux groupes", [
-        ...expectedMyPpn.filter((id) => !actualSet.has(id)).map((id) => `manquant : ${id}`),
-        ...actualMyPpn.filter((id) => !expectedSet.has(id)).map((id) => `en trop : ${id}`),
+         WHERE EXISTS (SELECT 1
+                       FROM produit_programme_niveau_category pc
+                                JOIN category_member cm ON cm.category_id = pc.category_id
+                       WHERE pc.ppn_id = ppn.id AND cm.ou_id = ${fs})`,
+    );
+    const actualMyPpn = all("SELECT id, org_group_name AS niveau FROM my_produitprogrammeniveau");
+    const expectedById = new Map(expectedMyPpn.map((row) => [row.id, row.niveau]));
+    const actualById = new Map(actualMyPpn.map((row) => [row.id, row.niveau]));
+    const actualSet = new Set(actualById.keys());
+    check(results, "my_produitprogrammeniveau = produits dus par la FS (ses catégories)", [
+        ...[...expectedById.keys()].filter((id) => !actualById.has(id)).map((id) => `manquant : ${id}`),
+        ...[...actualById.keys()].filter((id) => !expectedById.has(id)).map((id) => `en trop : ${id}`),
     ]);
+    check(results, "niveau de chaque produit : les catégories de la FS qui le reçoivent", [...actualById]
+        .filter(([id, niveau]) => expectedById.has(id) && expectedById.get(id) !== niveau)
+        .map(([id, niveau]) => `${id} : « ${niveau} » au lieu de « ${expectedById.get(id)} »`));
 
     // ── Reports ──────────────────────────────────────────────────────────────
     const rapports = all(

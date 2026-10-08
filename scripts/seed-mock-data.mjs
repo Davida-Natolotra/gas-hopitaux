@@ -5,7 +5,7 @@
 //
 // "Complete" means everything the app needs to be exercised end to end without
 // touching a server: the imported configuration (organisation units, groups,
-// programmes, produits, produit/programme/niveau links, with a couple of
+// categories, programmes, produits, produit/programme/niveau links, with a couple of
 // withdrawn entries kept as tombstones), the device's own choices (its FS, its
 // device id, the user profile), and several consecutive months of reports whose
 // figures actually agree with each other — opening stock carried from the month
@@ -16,8 +16,9 @@
 // scripts/mock-data/utgl-config-reference.json, a real server export trimmed to
 // the organisation units the app queries (see the header of
 // scripts/mock-data/catalogue.mjs). Only the reports on top of it are generated.
-// To refresh it, re-export from the server, drop the level-6 organisation units
-// and their group memberships, and overwrite that file.
+// To refresh it, re-export from the server (configuration schema 5), drop the
+// level-6 organisation units and their group and category memberships, and
+// overwrite that file.
 //
 // It writes a fresh SQLite file rather than editing the live one, and stamps
 // _sqlx_migrations exactly as tauri-plugin-sql's migrator would, so the app
@@ -37,7 +38,8 @@ import {copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import {dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {buildCatalogue, toConfigFile} from "./mock-data/catalogue.mjs";
+import {categoryNames} from "./mock-data/applicability.mjs";
+import {buildCatalogue, CONFIG_SCHEMA, toConfigFile} from "./mock-data/catalogue.mjs";
 import {buildRapports} from "./mock-data/rapports.mjs";
 import {reportResults, verifyDatabase} from "./mock-data/verify.mjs";
 import {monthKey, monthSeries, parseMonthKey, previousCalendarMonth} from "./mock-data/months.mjs";
@@ -216,6 +218,16 @@ function insertAll(db, catalogue, {rapports, lignes, detailSdu}, importedAt) {
     );
 
     insert(
+        "INSERT INTO category (id, name) VALUES (?, ?)",
+        catalogue.categories.map((category) => [category.id, category.name]),
+    );
+
+    insert(
+        "INSERT INTO category_member (category_id, ou_id) VALUES (?, ?)",
+        catalogue.categories.flatMap((category) => category.organisation_units.map((ouId) => [category.id, ouId])),
+    );
+
+    insert(
         "INSERT INTO programme (id, name, active, archived_at) VALUES (?, ?, 1, NULL)",
         catalogue.programmes.map((programme) => [programme.id, programme.name]),
     );
@@ -226,13 +238,21 @@ function insertAll(db, catalogue, {rapports, lignes, detailSdu}, importedAt) {
         catalogue.produits.map((p) => [p.id, p.name, p.unit, p.code, p.uuid_dhis2]),
     );
 
+    // As importConfig() writes them: the legacy org_group_* columns carry the
+    // row's own id and its category names (see migration 0009_category_only).
     insert(
         `INSERT INTO produit_programme_niveau
              (id, produit_id, programme_id, org_group_id, org_group_name, "order", active, archived_at)
          VALUES (?, ?, ?, ?, ?, ?, 1, NULL)`,
         catalogue.ppn.map((row) => [
-            row.id, row.produit_id, row.programme_id, row.org_group_id, row.org_group_name, row.order,
+            row.id, row.produit_id, row.programme_id, row.id, categoryNames(catalogue.categoryIndex, row).join(", "),
+            row.order,
         ]),
+    );
+
+    insert(
+        "INSERT INTO produit_programme_niveau_category (ppn_id, category_id) VALUES (?, ?)",
+        catalogue.ppn.flatMap((row) => row.category_ids.map((categoryId) => [row.id, categoryId])),
     );
 
     db.prepare(
@@ -245,13 +265,13 @@ function insertAll(db, catalogue, {rapports, lignes, detailSdu}, importedAt) {
     );
 
     // The materialised subset, built by the same rule as
-    // refreshMyProduitProgrammeNiveau().
+    // refreshMyProduitProgrammeNiveau(), niveau labels included.
     insert(
         `INSERT INTO my_produitprogrammeniveau
              (id, produit_id, programme_id, org_group_id, org_group_name, "order", active, archived_at)
          VALUES (?, ?, ?, ?, ?, ?, 1, NULL)`,
         catalogue.myPpn.map((row) => [
-            row.id, row.produit_id, row.programme_id, row.org_group_id, row.org_group_name, row.order,
+            row.id, row.produit_id, row.programme_id, row.id, row.niveau, row.order,
         ]),
     );
 
@@ -269,7 +289,7 @@ function insertAll(db, catalogue, {rapports, lignes, detailSdu}, importedAt) {
 
     db.prepare(
         `INSERT INTO config_version (id, version, schema, published_at, checksum, imported_at)
-         VALUES (1, ?, 3, ?, NULL, ?)`,
+         VALUES (1, ?, ${CONFIG_SCHEMA}, ?, NULL, ?)`,
     ).run(catalogue.configVersion, importedAt, importedAt);
 
     db.prepare("INSERT INTO device (id, device_id) VALUES (1, ?)").run(catalogue.device.device_id);
@@ -384,18 +404,22 @@ function summarise(db, log) {
     log(`  Rattachement  ${fs.drsp} › ${fs.sdsp}`);
     log(`  Utilisateur   ${user.username} — ${user.poste}`);
     log(`  Configuration v${config.version} (schéma ${config.schema})`);
-    const niveaux = all(
-        `SELECT g.name AS name
-         FROM organisation_unit_group_member m
-                  JOIN organisation_unit_group g ON g.id = m.group_id
+    const categories = all(
+        `SELECT c.name
+         FROM category_member m
+                  JOIN category c ON c.id = m.category_id
          WHERE m.ou_id = (SELECT fs_id FROM my_organisation_unit WHERE id = 1)
-         ORDER BY g.name`,
+         ORDER BY c.name`,
     ).map((row) => row.name);
-    log(`  Niveaux       ${niveaux.join(", ")}`);
+    const niveaux = all("SELECT DISTINCT org_group_name AS name FROM my_produitprogrammeniveau ORDER BY 1")
+        .map((row) => row.name);
+    log(`  Catégories    ${categories.join(", ") || "—"}`);
+    log(`  Niveaux       ${niveaux.join(" | ")}`);
 
     const counts = all(`
         SELECT 'unités d''organisation' AS objet, COUNT(*) AS n FROM organisation_units
         UNION ALL SELECT 'groupes', COUNT(*) FROM organisation_unit_group
+        UNION ALL SELECT 'catégories', COUNT(*) FROM category
         UNION ALL SELECT 'programmes', COUNT(*) FROM programme
         UNION ALL SELECT 'produits', COUNT(*) FROM produit
         UNION ALL SELECT 'liaisons produit/programme/niveau', COUNT(*) FROM produit_programme_niveau

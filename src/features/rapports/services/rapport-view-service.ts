@@ -130,7 +130,7 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
     const rows = await db.select<RapportViewQueryRow[]>(
         `SELECT mppn.id                        AS ppn_id,
                 COALESCE(NULLIF(l.produit_name, ''), p.name)    AS produit_name,
-                COALESCE(NULLIF(l.produit_unit, ''), p.unit)    AS produit_unit,
+                COALESCE(NULLIF(l.produit_unit, ''), fppn.report_unit, p.unit)    AS produit_unit,
                 pr.id                          AS programme_id,
                 COALESCE(NULLIF(l.programme_name, ''), pr.name) AS programme_name,
                 mppn.active                    AS produit_actif,
@@ -152,6 +152,8 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
                 prev_l.sdu_fin_mois            AS prev_sdu_fin_mois
          FROM my_produitprogrammeniveau mppn
                   JOIN produit p ON p.id = mppn.produit_id
+                  -- The unit this app reports the row in: on the full row, which the import sets.
+                  LEFT JOIN produit_programme_niveau fppn ON fppn.id = mppn.id
                   JOIN programme pr ON pr.id = mppn.programme_id
                   LEFT JOIN rapportfs_ligne l
                             ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = $1
@@ -213,9 +215,9 @@ export async function saveRapportFsLigne(
                                        qte_rec_mois, qte_dist_patient, qte_perime_avarie_mois,
                                        qte_redepl_mois, nb_jour_rupture, stock_theorique, sdu_fin_mois, ecart,
                                        cmm, cmma, msd, situation, observation,
-                                       produit_code, produit_name, produit_unit, programme_name)
+                                       produit_code, produit_name, produit_unit, produit_unit_id, programme_name)
          SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                COALESCE(p.code, ''), p.name, p.unit, pr.name
+                COALESCE(p.code, ''), p.name, COALESCE(ppn.report_unit, p.unit), ppn.report_unit_id, pr.name
          FROM produit_programme_niveau ppn
                   JOIN produit p ON p.id = ppn.produit_id
                   JOIN programme pr ON pr.id = ppn.programme_id

@@ -19,7 +19,7 @@ import {listMyProduitsByProgramme} from "../../organisation-units/organisation-u
 // Shows what the saved FS is actually configured for right now (one tab per
 // programme, produit + unit per row). Renders nothing at all when
 // my_produitprogrammeniveau is empty — there's nothing meaningful to show
-// until a config import has been done and matches the saved FS's group.
+// until a config import has been done and has produits for the saved FS.
 export default function ProduitsProgrammeTable() {
     const [sections, setSections] = useState<ProgrammeProduits[]>([]);
     const [loading, setLoading] = useState(true);
