@@ -15,3 +15,18 @@
 # dependency on a CRT that Windows 7 does not have.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# The pinned 1.77.2 cargo resolves dependencies without looking at their MSRV,
+# so it happily locks crates that need edition 2024 / Rust 1.85+ and the build
+# then fails with "feature `edition2024` is required". Newer cargo (1.84+)
+# honours this setting together with `rust-version` in src-tauri/Cargo.toml.
+#
+# Even so, do NOT run a blanket `cargo update`: a crate that compiles on 1.77
+# can still call Windows 8/10-only APIs at runtime (e.g. getrandom 0.3 uses
+# ProcessPrng), which only shows up on a real Windows 7 machine. Update named
+# crates only (`cargo +stable update <crate>`) and check that
+# `cargo tree --target x86_64-pc-windows-msvc` is unchanged unless that was
+# the point. Some crates use edition 2024 without declaring `rust-version`
+# (dlopen2 >= 0.8.1, dlopen2_derive >= 0.4.2); those need `--precise`.
+[resolver]
+incompatible-rust-versions = "fallback"
