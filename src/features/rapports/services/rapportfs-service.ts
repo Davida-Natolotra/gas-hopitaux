@@ -3,7 +3,7 @@ import {generateUuid} from "../../../services/id-service.ts";
 import {formatMoisAnnee} from "../../../utils/date-format.ts";
 import type {RapportHopitaux} from "../model/rapport-model.ts";
 import {MANDATORY_LIGNE_FIELDS} from "../model/rapport-completeness.ts";
-import {ppnOwedBy} from "../../configuration/services/applicability.ts";
+import {ppnOwedBy, reportListsPpn} from "../../configuration/services/applicability.ts";
 
 interface RapportfsRow {
     id: string;
@@ -132,8 +132,8 @@ export async function createRapportFs(input: { fsId: string; moisAnnee: string }
 // stays accurate.
 //
 // The produits it shows are getProgrammeSections's: those the report's own
-// facility owes (its categories), still active, or withdrawn where the report
-// already has a line. A withdrawn row it never captured is not owed — counting it left
+// facility owes (its categories) and reports (reportListsPpn) — still active and
+// not unchecked, or otherwise where the report already holds figures. A withdrawn row it never captured is not owed — counting it left
 // every report "Incomplet" as soon as a configuration withdrew anything.
 export async function refreshRapportFsStatus(rapportfsId: string): Promise<boolean> {
     const db = await getDb();
@@ -145,7 +145,7 @@ export async function refreshRapportFsStatus(rapportfsId: string): Promise<boole
                   LEFT JOIN rapportfs_ligne l
                             ON l.produit_programme_niveau_id = ppn.id AND l.rapportfs_id = r.id
          WHERE r.id = $1
-           AND (ppn.active = 1 OR l.id IS NOT NULL)`,
+           AND ${reportListsPpn("ppn", "r.fs_id", "l")}`,
         [rapportfsId],
     );
     const complete = rows.every(

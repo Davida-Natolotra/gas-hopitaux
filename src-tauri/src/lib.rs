@@ -78,6 +78,12 @@ pub fn run() {
             sql: include_str!("../migrations/0011_rename_rapportfs_with_fs_name.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 12,
+            description: "ppn_exclusion",
+            sql: include_str!("../migrations/0012_ppn_exclusion.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -4,7 +4,7 @@ import {writeFile} from "@tauri-apps/plugin-fs";
 import {getDb} from "../../../services/db.ts";
 import {stampReportWithConfigVersion} from "../../configuration/services/config-version-service.ts";
 import {markRapportFsExported, setRapportFsExportedDate} from "./rapportfs-service.ts";
-import {niveauLabel, ppnOwedBy} from "../../configuration/services/applicability.ts";
+import {niveauLabel, ppnOwedBy, ppnSelectedBy, reportListsPpn} from "../../configuration/services/applicability.ts";
 import {parseMoisAnnee} from "../../../utils/mois-annee.ts";
 
 const UTGLFS_FILTERS = [{name: "Export UTGL FS", extensions: ["utglhp"]}];
@@ -182,7 +182,8 @@ async function getReportOrganisationUnit(rapportfsId: string): Promise<ReportOrg
 // enriched view models the rest of the UI uses.
 //
 // Everything is the report's own: its facility (see getReportOrganisationUnit), the
-// produits that facility owes, and only its lines on those. A line on a produit the
+// produits that facility owes and reports, and only the lines its report lists
+// (reportListsPpn) — the same ones the report screen shows. A line on a produit the
 // facility does not owe — say an LRR produit on a hospital that is not an LRR, left
 // behind when the device was moved between hospitals — is not part of its report, and
 // sending it would have the server count a produit the facility never had to report.
@@ -194,7 +195,8 @@ async function buildExportPayload(rapportfsId: string, unit: ReportOrganisationU
                 ${niveauLabel("ppn", "$1")} AS org_group_name, ppn."order"
          FROM produit_programme_niveau ppn
          WHERE ${ppnOwedBy("ppn", "$1")}
-           AND ppn.active = 1`,
+           AND ppn.active = 1
+           AND ${ppnSelectedBy("ppn", "$1")}`,
         [unit.fs_id],
     );
     const my_organisation_unit: MyOrganisationUnitRow[] = [{
@@ -224,7 +226,8 @@ async function buildExportPayload(rapportfsId: string, unit: ReportOrganisationU
            AND EXISTS (SELECT 1
                        FROM produit_programme_niveau ppn
                        WHERE ppn.id = l.produit_programme_niveau_id
-                         AND ${ppnOwedBy("ppn", "$2")})`,
+                         AND ${ppnOwedBy("ppn", "$2")}
+                         AND ${reportListsPpn("ppn", "$2", "l")})`,
         [rapportfsId, unit.fs_id],
     );
     const rapportfs_ligne: (RapportfsLigneRow & {detail_sdu: DetailSduRow[]})[] = [];

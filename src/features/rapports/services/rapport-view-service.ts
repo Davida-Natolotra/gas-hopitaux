@@ -2,7 +2,7 @@ import {getDb} from "../../../services/db.ts";
 import {generateUuid} from "../../../services/id-service.ts";
 import type {DetailSDU, RapportHopitauxLigne} from "../model/rapport-model.ts";
 import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
-import {ppnOwedBy} from "../../configuration/services/applicability.ts";
+import {ppnOwedBy, reportListsPpn} from "../../configuration/services/applicability.ts";
 
 export interface RapportViewRow {
     ppnId: string;
@@ -108,13 +108,15 @@ async function findPreviousConsecutiveRapportfsId(rapportfsId: string): Promise<
 // produit that facility does not owe is not shown: it is not part of its report. Also left-joins the previous consecutive
 // month's rapportfs_ligne (if any) to carry over sdu_fin_mois as the
 // suggested qte_dispo_deb_mois for produits not yet reported this month.
-// Archived produits. A produit withdrawn from the configuration must stop being
+// Which of them it lists is reportListsPpn. A produit withdrawn from the
+// configuration, or unchecked under Paramètres → Produits, must stop being
 // offered for new collection without disappearing from what has already been
 // collected — a report has to stay readable exactly as it was filled in. Two
 // cases are therefore kept, and only those:
 //
-//   * the produit is still active in the installed configuration;
-//   * this report already has a line for it, whatever its state now.
+//   * the produit is still active in the installed configuration and the
+//     hospital reports it;
+//   * this report already holds figures for it, whatever its state now.
 //
 // What decides this is the configuration the device holds, not the report's
 // month. Once a version arrives that withdraws a produit, it is gone from every
@@ -161,7 +163,7 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
                   LEFT JOIN rapportfs_ligne prev_l
                             ON prev_l.produit_programme_niveau_id = ppn.id AND prev_l.rapportfs_id = $2
          WHERE r.id = $1
-           AND (ppn.active = 1 OR l.id IS NOT NULL)
+           AND ${reportListsPpn("ppn", "r.fs_id", "l")}
          ORDER BY pr.name, (ppn."order" IS NULL), ppn."order", p.name`,
         [rapportfsId, previousRapportfsId ?? ""],
     );

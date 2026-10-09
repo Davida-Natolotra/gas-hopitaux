@@ -3,7 +3,7 @@ import {generateUuid} from "../../../services/id-service.ts";
 import type {RapportHopitaux} from "../model/rapport-model.ts";
 import {refreshRapportFsStatus} from "./rapportfs-service.ts";
 import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
-import {ppnOwedBy} from "../../configuration/services/applicability.ts";
+import {ppnOwedBy, ppnSelectedBy} from "../../configuration/services/applicability.ts";
 
 // CMM (Consommation Moyenne Mensuelle) requires 4 consecutive months of
 // history (same fs_id): once a rapportfs's mois_annee is the 4th in such a
@@ -78,8 +78,8 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
         // A line this creates is labelled like one saveRapportFsLigne creates — its
         // unit above all: the server reads the line's quantities in it.
         //
-        // Only onto a row the report's own facility owes and still collects, or a
-        // line the report already has: a line on a withdrawn row is what keeps it on
+        // Only onto a row the report's own facility owes, still collects and has not
+        // unchecked, or a line the report already has: a line on a withdrawn row is what keeps it on
         // the report, "Retiré", beside the row that replaced it — the same produit
         // twice — and one on a row its facility does not owe (an LRR produit on a
         // hospital that is not an LRR) puts a produit on the report that is not its
@@ -93,7 +93,8 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
                       JOIN programme pr ON pr.id = ppn.programme_id
              WHERE ppn.id = $3
                AND ((ppn.active = 1
-                     AND ${ppnOwedBy("ppn", "(SELECT r.fs_id FROM rapportfs r WHERE r.id = $2)")})
+                     AND ${ppnOwedBy("ppn", "(SELECT r.fs_id FROM rapportfs r WHERE r.id = $2)")}
+                     AND ${ppnSelectedBy("ppn", "(SELECT r.fs_id FROM rapportfs r WHERE r.id = $2)")})
                  OR EXISTS (SELECT 1
                             FROM rapportfs_ligne l
                             WHERE l.rapportfs_id = $2

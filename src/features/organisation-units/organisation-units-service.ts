@@ -4,7 +4,9 @@ import {
     inAppRoster,
     niveauLabel,
     ppnOwedBy,
+    ppnSelectedBy,
 } from "../configuration/services/applicability.ts";
+import {refreshRapportFsStatus} from "../rapports/services/rapportfs-service.ts";
 import type {MyOrganisationUnit, OrganisationUnit} from "./organisation-unit-model.ts";
 
 // Levels: 1=pays, 2=DRSP/région, 3=SDSP/district, 4=commune, 5=FS. Level 6+
@@ -150,6 +152,9 @@ export interface ProduitSummary {
     // The categories the saved hospital reports this produit through ("HOPITAUX",
     // "CDT, LRR"): its row's niveau label.
     niveau: string;
+    // Whether the hospital reports it: false when unchecked under Paramètres →
+    // Produits (ppn_exclusion), and then left off its reports.
+    selected: boolean;
 }
 
 export interface ProgrammeProduits {
@@ -170,6 +175,7 @@ interface ProduitProgrammeRow {
     produit_name: string;
     produit_unit: string;
     org_group_name: string;
+    selected: number;
 }
 
 // The saved FS's applicable produits (my_produitprogrammeniveau), grouped by
@@ -186,7 +192,8 @@ export async function listMyProduitsByProgramme(): Promise<ProgrammeProduits[]> 
                 mppn.id             AS ppn_id,
                 p.name              AS produit_name,
                 COALESCE(fppn.report_unit, p.unit) AS produit_unit,
-                mppn.org_group_name AS org_group_name
+                mppn.org_group_name AS org_group_name,
+                ${ppnSelectedBy("mppn", "(SELECT fs_id FROM my_organisation_unit WHERE id = 1)")} AS selected
          FROM my_produitprogrammeniveau mppn
                   JOIN produit p ON p.id = mppn.produit_id
                   -- The unit this app reports the row in: on the full row, which the import sets.
@@ -214,10 +221,39 @@ export async function listMyProduitsByProgramme(): Promise<ProgrammeProduits[]> 
             produitName: row.produit_name,
             unit: row.produit_unit,
             niveau: row.org_group_name,
+            selected: Boolean(row.selected),
         });
     }
     for (const section of sections.values()) {
         section.niveaux = Array.from(niveauxByProgramme.get(section.programmeId)!).sort();
     }
     return Array.from(sections.values());
+}
+
+/**
+ * Saves which of the saved hospital's produits it reports: `unselectedPpnIds` are
+ * the rows unchecked under Paramètres → Produits, every other row it owes is
+ * reported. Replaces the hospital's previous choice as a whole, then re-judges the
+ * completeness of its reports, which count only what they list. Returns how many
+ * reports changed status.
+ */
+export async function saveProduitSelection(unselectedPpnIds: string[]): Promise<number> {
+    const db = await getDb();
+    const [unit] = await db.select<{ fs_id: string }[]>("SELECT fs_id FROM my_organisation_unit WHERE id = 1");
+    if (!unit) throw new Error("Aucune formation sanitaire n'est enregistrée sur cet appareil.");
+
+    await db.execute("DELETE FROM ppn_exclusion WHERE fs_id = $1", [unit.fs_id]);
+    for (const ppnId of new Set(unselectedPpnIds)) {
+        await db.execute("INSERT INTO ppn_exclusion (fs_id, ppn_id) VALUES ($1, $2)", [unit.fs_id, ppnId]);
+    }
+
+    const reports = await db.select<{ id: string; status: number }[]>(
+        "SELECT id, status FROM rapportfs WHERE fs_id = $1",
+        [unit.fs_id],
+    );
+    let changed = 0;
+    for (const report of reports) {
+        if ((await refreshRapportFsStatus(report.id)) !== Boolean(report.status)) changed += 1;
+    }
+    return changed;
 }

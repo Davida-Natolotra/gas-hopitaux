@@ -312,8 +312,9 @@ export function verifyDatabase(db) {
     check(results, "CMM/CMMA calculés sur les 3 mois précédents", cmmErrors);
 
     // ── Status ───────────────────────────────────────────────────────────────
-    // Same query as refreshRapportFsStatus: over the produits the report shows —
-    // still collected, or withdrawn with a line on this report.
+    // Same rule as refreshRapportFsStatus (reportListsPpn): over the produits the
+    // report shows — still collected and not unchecked (ppn_exclusion), or otherwise
+    // where the report holds figures for them.
     const statusErrors = [];
     for (const rapport of rapports) {
         const rows = all(
@@ -322,8 +323,11 @@ export function verifyDatabase(db) {
              FROM my_produitprogrammeniveau mppn
                       LEFT JOIN rapportfs_ligne l
                                 ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = ?
-             WHERE mppn.active = 1
-                OR l.id IS NOT NULL`,
+             WHERE (mppn.active = 1
+                 AND NOT EXISTS (SELECT 1 FROM ppn_exclusion x WHERE x.ppn_id = mppn.id AND x.fs_id = ${fs}))
+                OR (l.id IS NOT NULL
+                 AND COALESCE(l.qte_dispo_deb_mois, l.qte_rec_mois, l.qte_dist_patient, l.qte_perime_avarie_mois,
+                              l.qte_redepl_mois, l.nb_jour_rupture, l.sdu_fin_mois) IS NOT NULL)`,
             [rapport.id],
         );
         const complete = rows.every((row) => row.ligne_id !== null && isLigneComplete(row));

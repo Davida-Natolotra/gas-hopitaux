@@ -93,6 +93,38 @@ export function ppnOwedBy(ppn: string, ou: string): string {
 }
 
 /**
+ * Condition: the facility `ou` reports the row — it has not unchecked it under
+ * Paramètres → Produits (ppn_exclusion). Every row it owes is reported by default.
+ */
+export function ppnSelectedBy(ppn: string, ou: string): string {
+    return `NOT EXISTS (SELECT 1 FROM ppn_exclusion x WHERE x.ppn_id = ${ppn}.id AND x.fs_id = ${ou})`;
+}
+
+/**
+ * Condition: the report line `ligne` (an alias of rapportfs_ligne, possibly from a
+ * LEFT JOIN) carries figures someone entered — not merely a CMM written ahead of them.
+ */
+export function ligneCaptured(ligne: string): string {
+    return `COALESCE(${ligne}.qte_dispo_deb_mois, ${ligne}.qte_rec_mois, ${ligne}.qte_dist_patient,
+                     ${ligne}.qte_perime_avarie_mois, ${ligne}.qte_redepl_mois, ${ligne}.nb_jour_rupture,
+                     ${ligne}.sdu_fin_mois) IS NOT NULL`;
+}
+
+/**
+ * Condition: a report of facility `ou` lists the row `ppn` (which `ou` owes, see
+ * ppnOwedBy), given its line `ligne` on that report — what the report screen shows,
+ * what its completeness counts and what its export sends:
+ *
+ *   * a row still collected that the facility reports (not unchecked);
+ *   * any other row — withdrawn, or unchecked — only where the report already holds
+ *     figures for it: those were entered and are kept, never dropped.
+ */
+export function reportListsPpn(ppn: string, ou: string, ligne: string): string {
+    return `((${ppn}.active = 1 AND ${ppnSelectedBy(ppn, ou)})
+            OR (${ligne}.id IS NOT NULL AND ${ligneCaptured(ligne)}))`;
+}
+
+/**
  * Condition: the row is one a PhaGDis report covers — it is configured for one of
  * GAS-PhaGDis's categories (PhaGDis by default), and the district `sdsp` (a SQL
  * expression for its id) is a member of it. Same rule as the server's PhaGDis
