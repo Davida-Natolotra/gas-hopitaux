@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:clean": "node scripts/dev-clean.mjs",
     "dev:mock": "node scripts/dev-mock.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",

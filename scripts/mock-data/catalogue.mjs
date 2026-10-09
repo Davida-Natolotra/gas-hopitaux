@@ -48,6 +48,11 @@ const MY_FS_NAME = "CHRD2 Bongatsara";
 // unit it reports each row in.
 export const THIS_APP = "GAS-Hopitaux";
 
+// The category this app was built around: its roster when a configuration names
+// none (schema 5) — CATEGORY_HOPITAUX in src/features/configuration/services/
+// applicability.ts.
+export const DEFAULT_ROSTER_CATEGORY = "HOPITAUX";
+
 // The configuration shape this seeder writes and the app accepts.
 export const CONFIG_SCHEMA = 6;
 
@@ -58,16 +63,20 @@ const USER_PROFILE = {
     phone: "0341234567",
 };
 
-// How many of this FS's produits to withdraw from the configuration part-way
-// through the series. The export's own `deactivated` list only names rows the
-// server merged away (none of them in this FS's subset), so there would
-// otherwise be nothing exercising the tombstone path on a report; which produits
-// get picked is decided below by a stable rule rather than named here, so the
-// choice survives a re-export.
+// With `synthetic` (the seeder's --simulate): how many of this FS's produits to
+// withdraw from the configuration part-way through the series. The export's own
+// `deactivated` list only names rows the server merged away (none of them in this
+// FS's subset), so there would otherwise be nothing exercising the tombstone path
+// on a report; which produits get picked is decided below by a stable rule rather
+// than named here, so the choice survives a re-export.
+//
+// Never by default: these withdrawals are invented, and a dataset that claims the
+// export's version while withdrawing produits the server still publishes shows
+// them "Retiré" when utgl-web says nothing of the kind.
 const ARCHIVED_PRODUIT_COUNT = 2;
 
-// How many of this FS's rows to report in a unit other than their produit's
-// reference unit. The export's Assignation names no unit for GAS-Hopitaux, so
+// With `synthetic`, likewise: how many of this FS's rows to report in a unit other
+// than their produit's reference unit. The export's Assignation names no unit for GAS-Hopitaux, so
 // every row would otherwise be reported in its reference unit and the
 // report_unit_id path would only ever carry the obvious id. Rows are picked among
 // those whose produit has a second unit, by id order, like the archived ones.
@@ -104,8 +113,14 @@ export function readReferenceConfig(path = REFERENCE_CONFIG_PATH) {
  *
  * `configVersion` overrides the version the export carries — reports are stamped
  * with it, so a run can pretend to be on a newer configuration than the file.
+ *
+ * `referenceConfig` replaces the bundled reference (installed-config.mjs reads one
+ * back out of the app's database), and `myFsId` the hospital it is for. The
+ * configuration is used exactly as given — what importing it would install — unless
+ * `synthetic` asks for produits withdrawn part-way and units assigned on top of it,
+ * changes the server never published, to exercise those paths.
  */
-export function buildCatalogue({seed, archiveMonth, configVersion, referenceConfig}) {
+export function buildCatalogue({seed, archiveMonth, configVersion, referenceConfig, myFsId = null, synthetic = false}) {
     const uuidFor = makeUuidFactory(seed);
     const config = referenceConfig ?? readReferenceConfig();
 
@@ -124,9 +139,11 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
     if (rosterCategories.length === 0) throw new Error(`Aucune catégorie assignée à ${THIS_APP}.`);
 
     // ── The FS this device is ────────────────────────────────────────────────
-    const matches = organisationUnits.filter((ou) => ou.name === MY_FS_NAME && ou.level === 5);
+    const matches = myFsId
+        ? organisationUnits.filter((ou) => ou.id === myFsId)
+        : organisationUnits.filter((ou) => ou.name === MY_FS_NAME && ou.level === 5);
     if (matches.length === 0) {
-        throw new Error(`FS introuvable dans la configuration de référence : ${MY_FS_NAME}`);
+        throw new Error(`FS introuvable dans la configuration : ${myFsId ?? MY_FS_NAME}`);
     }
     if (matches.length > 1) {
         // Facility names repeat across districts in the real export; a name that
@@ -141,13 +158,13 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
     const sdsp = parentOf(commune);
     const drsp = parentOf(sdsp);
     if (!commune || !sdsp || !drsp) {
-        throw new Error(`Chaîne DRSP/SDSP/commune incomplète au-dessus de ${MY_FS_NAME}.`);
+        throw new Error(`Chaîne DRSP/SDSP/commune incomplète au-dessus de ${myFs.name}.`);
     }
 
     if (!rosterCategories.some((category) => index.categoryMembers.get(category.id).has(myFs.id))) {
         // Without this the cascade would not offer the FS in the first place.
         throw new Error(
-            `${MY_FS_NAME} n'est membre d'aucune catégorie de ${THIS_APP} ` +
+            `${myFs.name} n'est membre d'aucune catégorie de ${THIS_APP} ` +
             `(${rosterCategories.map((category) => category.name).join(", ")}) dans la configuration.`,
         );
     }
@@ -165,7 +182,7 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
     // reaches the FS through.
     const myPpnRows = ppn.filter((row) => appliesTo(index, row, myFs.id));
     if (myPpnRows.length === 0) {
-        throw new Error(`Aucune liaison produit/programme/niveau pour ${MY_FS_NAME}.`);
+        throw new Error(`Aucune liaison produit/programme/niveau pour ${myFs.name}.`);
     }
 
     const produitById = new Map(produits.map((produit) => [produit.id, produit]));
@@ -181,7 +198,7 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
     // them (see migration 0007 and config-import-service.ts). Picked by id order
     // so the same produits are withdrawn on every run with the same export.
     const archivedProduitIds = new Set(
-        [...new Set(myPpnRows.map((row) => row.produit_id))].sort().slice(0, ARCHIVED_PRODUIT_COUNT),
+        [...new Set(myPpnRows.map((row) => row.produit_id))].sort().slice(0, synthetic ? ARCHIVED_PRODUIT_COUNT : 0),
     );
     const archivedAt = `${monthKey(archiveMonth)}-28T08:00:00Z`;
     const withdrawn = myPpnRows
@@ -203,7 +220,7 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
         .filter((row) => !archivedPpnIds.has(row.id) && !assigned.has(row.id))
         .filter((row) => (produitById.get(row.produit_id).units ?? []).length > 1)
         .sort((a, b) => a.id.localeCompare(b.id))
-        .slice(0, ASSIGNED_UNIT_COUNT)
+        .slice(0, synthetic ? ASSIGNED_UNIT_COUNT : 0)
         .map((row) => {
             const produit = produitById.get(row.produit_id);
             const other = produit.units.find((unit) => unit.name !== produit.unit);
@@ -222,6 +239,9 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
 
     return {
         configVersion: configVersion ?? config.version,
+        // The export's own stamp, unless the dataset no longer is that export.
+        publishedAt: config.published_at ?? null,
+        checksum: synthetic || configVersion != null ? null : (config.checksum ?? null),
         referenceVersion: config.version,
         organisationUnits,
         groups,
@@ -266,8 +286,8 @@ export function toConfigFile(catalogue, publishedAt) {
     return {
         schema: CONFIG_SCHEMA,
         version: catalogue.configVersion,
-        published_at: publishedAt,
-        checksum: null,
+        published_at: catalogue.publishedAt ?? publishedAt,
+        checksum: catalogue.checksum,
         organisation_units: catalogue.organisationUnits.map((ou) => ({
             id: ou.id, name: ou.name, level: ou.level, parent_id: ou.parent_id,
         })),

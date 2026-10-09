@@ -8,7 +8,10 @@
 // Three things happen, in order:
 //
 //   1. seed-mock-data.mjs builds a fresh dataset into a temporary folder and
-//      copies it to rfs-dev.db in the app's data directory;
+//      copies it to rfs-dev.db in the app's data directory. It follows the
+//      configuration already imported into rfs.db, and the hospital saved there,
+//      when there is one (--from-installed: rfs.db is only read), and the bundled
+//      reference configuration otherwise;
 //   2. `tauri dev` starts with VITE_MOCK_DB=1, which is what makes
 //      src/services/db.ts open rfs-dev.db instead of rfs.db;
 //   3. when the app closes, rfs-dev.db and the temporary folder are deleted.
@@ -59,8 +62,12 @@ function cleanUp() {
 /** Runs a command to completion, inheriting stdio; resolves with its exit code. */
 function run(command, args, options = {}) {
     return new Promise((resolvePromise, rejectPromise) => {
-        // shell:true so `npm` resolves to npm.cmd on Windows.
-        const child = spawn(command, args, {stdio: "inherit", shell: true, ...options});
+        // shell:true so `npm` resolves to npm.cmd on Windows. The shell gets one
+        // command line: Node refuses to splice an argument list into one itself.
+        const shell = options.shell ?? true;
+        const child = shell
+            ? spawn([command, ...args].join(" "), {stdio: "inherit", shell: true, ...options})
+            : spawn(command, args, {stdio: "inherit", ...options});
         child.on("error", rejectPromise);
         child.on("close", (code, signal) => resolvePromise(signal ? 1 : (code ?? 0)));
     });
@@ -73,7 +80,7 @@ async function main() {
 
     workDir = mkdtempSync(join(tmpdir(), "utgl-mock-"));
 
-    const seedArgs = [SEEDER, "--dev-db", "--force", "--out", workDir, ...process.argv.slice(2)];
+    const seedArgs = [SEEDER, "--dev-db", "--force", "--from-installed", "--out", workDir, ...process.argv.slice(2)];
     const seeded = await run(process.execPath, seedArgs, {shell: false});
     if (seeded !== 0) {
         cleanUp();

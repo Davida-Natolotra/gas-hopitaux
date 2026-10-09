@@ -43,6 +43,7 @@ import {fileURLToPath} from "node:url";
 
 import {categoryNames} from "./mock-data/applicability.mjs";
 import {buildCatalogue, CONFIG_SCHEMA, toConfigFile} from "./mock-data/catalogue.mjs";
+import {readInstalledConfig} from "./mock-data/installed-config.mjs";
 import {buildRapports} from "./mock-data/rapports.mjs";
 import {reportResults, verifyDatabase} from "./mock-data/verify.mjs";
 import {monthKey, monthSeries, parseMonthKey, previousCalendarMonth} from "./mock-data/months.mjs";
@@ -61,7 +62,15 @@ Usage : node scripts/seed-mock-data.mjs [options]
   --seed <n>             Graine du générateur ; même graine = mêmes données (défaut : 20260813)
   --config-version <n>   Version de configuration à estampiller (défaut : celle de l'export)
   --partial-last         Laisse une partie du mois le plus récent non saisie
-  --archive-mid          Retire les produits archivés au milieu de la série plutôt qu'au dernier mois
+  --simulate             Ajoute au jeu ce que le serveur n'a pas publié, pour exercer ces chemins :
+                         deux produits retirés de la configuration (« Retiré ») et deux liaisons
+                         déclarées dans une autre unité. Sans lui, la configuration est exactement
+                         celle de l'export, comme après son import
+  --archive-mid          Avec --simulate (qu'il implique) : retire les produits au milieu de la série
+                         plutôt qu'au dernier mois
+  --from-installed       Suit la configuration déjà importée dans rfs.db (et son hôpital) au lieu de
+                         la configuration de référence, quand il y en a une ; rfs.db n'est que lue.
+                         C'est ce qu'utilise « npm run dev:mock »
   --install              Remplace la base de l'application installée (sauvegarde préalable)
   --dev-db               Écrit la base de session jetable (rfs-dev.db) au lieu de la vraie ;
                          c'est ce qu'utilise « npm run dev:mock », qui la supprime en sortant
@@ -78,6 +87,8 @@ function parseArgs(argv) {
         configVersion: null,
         partialLast: false,
         archiveMid: false,
+        simulate: false,
+        fromInstalled: false,
         install: false,
         devDb: false,
         force: false,
@@ -98,7 +109,9 @@ function parseArgs(argv) {
             case "--seed": options.seed = Number(value()); break;
             case "--config-version": options.configVersion = Number(value()); break;
             case "--partial-last": options.partialLast = true; break;
-            case "--archive-mid": options.archiveMid = true; break;
+            case "--archive-mid": options.archiveMid = true; options.simulate = true; break;
+            case "--simulate": options.simulate = true; break;
+            case "--from-installed": options.fromInstalled = true; break;
             case "--install": options.install = true; break;
             case "--dev-db": options.devDb = true; break;
             case "--force": options.force = true; break;
@@ -301,8 +314,8 @@ function insertAll(db, catalogue, {rapports, lignes, detailSdu}, importedAt) {
 
     db.prepare(
         `INSERT INTO config_version (id, version, schema, published_at, checksum, imported_at)
-         VALUES (1, ?, ${CONFIG_SCHEMA}, ?, NULL, ?)`,
-    ).run(catalogue.configVersion, importedAt, importedAt);
+         VALUES (1, ?, ${CONFIG_SCHEMA}, ?, ?, ?)`,
+    ).run(catalogue.configVersion, catalogue.publishedAt ?? importedAt, catalogue.checksum, importedAt);
 
     db.prepare("INSERT INTO device (id, device_id) VALUES (1, ?)").run(catalogue.device.device_id);
     db.prepare("INSERT INTO user_fs (id, username, poste, phone, device_id) VALUES (?, ?, ?, ?, ?)").run(
@@ -355,8 +368,9 @@ export const DEV_DB_FILE = "rfs-dev.db";
 
 export function appDatabasePath(fileName = "rfs.db") {
     const identifier = JSON.parse(readFileSync(TAURI_CONF, "utf8")).identifier;
-    // Where Tauri's app_data_dir lands per platform (see src-tauri/src/backup.rs,
-    // which resolves the same directory from inside the app).
+    // Where tauri-plugin-sql opens "sqlite:<file>": Tauri's app_config_dir, per
+    // platform. On Windows and macOS that is also app_data_dir, but not on Linux,
+    // where a database written to ~/.local/share is one the app never opens.
     if (process.platform === "win32") {
         if (!process.env.APPDATA) throw new Error("APPDATA introuvable dans l'environnement.");
         return join(process.env.APPDATA, identifier, fileName);
@@ -364,7 +378,7 @@ export function appDatabasePath(fileName = "rfs.db") {
     if (process.platform === "darwin") {
         return join(process.env.HOME, "Library", "Application Support", identifier, fileName);
     }
-    const base = process.env.XDG_DATA_HOME ?? join(process.env.HOME, ".local", "share");
+    const base = process.env.XDG_CONFIG_HOME ?? join(process.env.HOME, ".config");
     return join(base, identifier, fileName);
 }
 
@@ -507,10 +521,23 @@ function main() {
         ? months[Math.floor((months.length - 1) / 2)]
         : months[months.length - 1];
 
+    // The installed configuration, when asked for and when there is one; the
+    // bundled reference otherwise.
+    const installed = options.fromInstalled ? readInstalledConfig(appDatabasePath()) : null;
+    if (options.fromInstalled) {
+        log(installed
+            ? `Configuration : v${installed.config.version} installée dans ${appDatabasePath()}` +
+              (installed.fsId ? "" : " (aucun hôpital enregistré : celui de la référence)")
+            : "Configuration : aucune n'est installée, configuration de référence");
+    }
+
     const catalogue = buildCatalogue({
         seed: options.seed,
         archiveMonth,
         configVersion: options.configVersion,
+        referenceConfig: installed?.config,
+        myFsId: installed?.fsId ?? null,
+        synthetic: options.simulate,
     });
     const rapportData = buildRapports({
         catalogue,
@@ -569,11 +596,11 @@ function main() {
     log(`Base       : ${dbPath}`);
     log(`Config     : ${configPath}`);
 
-    if (catalogue.deactivated.length > 0) {
+    if (catalogue.archivedPpnIds.size > 0) {
         const archivedKey = monthKey(archiveMonth);
         log("");
         log(`Note       : ${catalogue.archivedPpnIds.size} liaison(s) produit/programme retirée(s) de la ` +
-            `configuration au ${archivedKey}.`);
+            `configuration au ${archivedKey} (--simulate : le serveur ne les a pas retirées).`);
     }
 
     if (catalogue.assignedPpnIds.size > 0) {
