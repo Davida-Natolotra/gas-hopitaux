@@ -1,6 +1,7 @@
 import Database from "@tauri-apps/plugin-sql";
 import {getDb} from "../../../services/db.ts";
 import {refreshMyProduitProgrammeNiveau} from "../../organisation-units/organisation-units-service.ts";
+import {refreshRapportFsStatus} from "../../rapports/services/rapportfs-service.ts";
 import type {ConfigFile, ConfigProduit, ConfigTombstone} from "../models/config-model.ts";
 import {THIS_APP} from "../models/this-app.ts";
 import {getConfigVersion, setConfigVersion} from "./config-version-service.ts";
@@ -98,6 +99,148 @@ async function applyTombstones(db: Database, tombstones: ConfigTombstone[]): Pro
         marked += 1;
     }
     return marked;
+}
+
+/** Configuration 0015's test for "the same produit": names compared with whitespace
+ *  collapsed and case ignored. */
+function produitKey(name: string): string {
+    return name.split(/\s+/).filter(Boolean).join(" ").toLowerCase();
+}
+
+interface PpnIdentityRow {
+    id: string;
+    produit_id: string;
+    programme_id: string;
+    active: number;
+    produit_name: string;
+    report_unit: string | null;
+    report_unit_id: string | null;
+}
+
+interface LigneToMoveRow {
+    id: string;
+    rapportfs_id: string;
+    produit_unit: string;
+    cmm: number | null;
+    cmma: number | null;
+}
+
+interface SurvivorLigneRow {
+    id: string;
+    qte_dispo_deb_mois: number | null;
+    qte_rec_mois: number | null;
+    qte_dist_patient: number | null;
+    sdu_fin_mois: number | null;
+    detail_count: number;
+}
+
+/**
+ * Moves report lines off withdrawn produit_programme_niveau rows onto the active row
+ * for the same produit × programme, the way the server's aliases do.
+ *
+ * A report collects a produit once per programme. The server used to configure a
+ * produit once per organisation unit group, and kept same-named copies of a produit
+ * per group (CEFTRIAXONE 1G for CSB and again for HOPITAUX); it then folded those
+ * into one row per produit × programme, keeping the CSB copy (configuration 0010 and
+ * 0015). A device only hears of that as tombstones on the rows it held, so a report
+ * that had captured one went on showing it, "Retiré", beside the row that replaced it
+ * — the same produit twice — and the CMM and the carried-over opening stock, which
+ * follow a row's id from month to month, lost its history.
+ *
+ * The configuration does not ship the server's aliases, but they follow from what the
+ * device holds: the replacement is the active row of the same programme for the same
+ * produit — by id, or, for a merged-away copy whose produit the server deleted, by
+ * name (produit names are unique among active produits). Only an unambiguous match is
+ * used. A line that would land on a report already holding a filled-in line for the
+ * replacement stays where it is, as on the server; one holding only a placeholder (CMM
+ * written ahead of any figures) gives way to the line with the figures.
+ *
+ * Idempotent: once moved, a line is on an active row and is not looked at again.
+ * Returns the ids of the reports whose lines moved.
+ */
+async function reattachWithdrawnLines(db: Database): Promise<string[]> {
+    const rows = await db.select<PpnIdentityRow[]>(
+        `SELECT ppn.id, ppn.produit_id, ppn.programme_id, ppn.active, p.name AS produit_name,
+                ppn.report_unit, ppn.report_unit_id
+         FROM produit_programme_niveau ppn
+                  JOIN produit p ON p.id = ppn.produit_id`,
+    );
+
+    const activeByProduit = new Map<string, PpnIdentityRow>();
+    const activeByName = new Map<string, PpnIdentityRow[]>();
+    for (const row of rows) {
+        if (!row.active) continue;
+        activeByProduit.set(`${row.programme_id}\u0000${row.produit_id}`, row);
+        const key = `${row.programme_id}\u0000${produitKey(row.produit_name)}`;
+        activeByName.set(key, [...(activeByName.get(key) ?? []), row]);
+    }
+
+    const touched = new Set<string>();
+    for (const withdrawn of rows) {
+        if (withdrawn.active) continue;
+        const byName = activeByName.get(`${withdrawn.programme_id}\u0000${produitKey(withdrawn.produit_name)}`) ?? [];
+        const target =
+            activeByProduit.get(`${withdrawn.programme_id}\u0000${withdrawn.produit_id}`) ??
+            (byName.length === 1 ? byName[0] : undefined);
+        if (!target) continue;
+
+        const lignes = await db.select<LigneToMoveRow[]>(
+            `SELECT id, rapportfs_id, produit_unit, cmm, cmma
+             FROM rapportfs_ligne
+             WHERE produit_programme_niveau_id = $1`,
+            [withdrawn.id],
+        );
+        for (const ligne of lignes) {
+            const [existing] = await db.select<SurvivorLigneRow[]>(
+                `SELECT l.id, l.qte_dispo_deb_mois, l.qte_rec_mois, l.qte_dist_patient, l.sdu_fin_mois,
+                        (SELECT COUNT(*) FROM detail_sdu d WHERE d.rapportfs_ligne_id = l.id) AS detail_count
+                 FROM rapportfs_ligne l
+                 WHERE l.rapportfs_id = $1
+                   AND l.produit_programme_niveau_id = $2`,
+                [ligne.rapportfs_id, target.id],
+            );
+            let cmm = ligne.cmm;
+            let cmma = ligne.cmma;
+            if (existing) {
+                const placeholder =
+                    existing.qte_dispo_deb_mois === null &&
+                    existing.qte_rec_mois === null &&
+                    existing.qte_dist_patient === null &&
+                    existing.sdu_fin_mois === null &&
+                    existing.detail_count === 0;
+                if (!placeholder) continue;
+                const [kept] = await db.select<{ cmm: number | null; cmma: number | null }[]>(
+                    "SELECT cmm, cmma FROM rapportfs_ligne WHERE id = $1",
+                    [existing.id],
+                );
+                cmm = cmm ?? kept?.cmm ?? null;
+                cmma = cmma ?? kept?.cmma ?? null;
+                await db.execute("DELETE FROM rapportfs_ligne WHERE id = $1", [existing.id]);
+            }
+
+            // The line keeps the labels it was captured with. Its unit id was the old
+            // copy's, which the server no longer has: it becomes the replacement's when
+            // the line was in that unit, and is otherwise left for the server to match
+            // by the line's unit label.
+            await db.execute(
+                `UPDATE rapportfs_ligne
+                 SET produit_programme_niveau_id = $1,
+                     produit_unit_id             = $2,
+                     cmm                         = $3,
+                     cmma                        = $4
+                 WHERE id = $5`,
+                [
+                    target.id,
+                    ligne.produit_unit === target.report_unit ? target.report_unit_id : null,
+                    cmm,
+                    cmma,
+                    ligne.id,
+                ],
+            );
+            touched.add(ligne.rapportfs_id);
+        }
+    }
+    return [...touched];
 }
 
 /**
@@ -269,6 +412,14 @@ export async function importConfig(config: ConfigFile): Promise<string> {
     // After the refresh, so my_produitprogrammeniveau exists to be marked.
     const marked = await applyTombstones(db, config.deactivated);
 
+    // After the tombstones, which say which rows are withdrawn. Every report is
+    // re-judged, not only those whose lines moved: a withdrawn row is no longer owed.
+    const reattached = await reattachWithdrawnLines(db);
+    const reports = await db.select<{ id: string }[]>("SELECT id FROM rapportfs");
+    for (const report of reports) {
+        await refreshRapportFsStatus(report.id);
+    }
+
     await setConfigVersion({
         version: config.version,
         schema: config.schema,
@@ -277,10 +428,14 @@ export async function importConfig(config: ConfigFile): Promise<string> {
     });
 
     const withdrawn = marked ? `, ${marked} élément(s) retiré(s) et conservé(s) pour l'historique` : "";
+    const moved = reattached.length
+        ? ` Les lignes de ${reattached.length} rapport(s) saisies sur des produits fusionnés par le ` +
+          "serveur ont été rattachées au produit qui les remplace."
+        : "";
     return (
         `Configuration v${config.version} importée : ${config.organisation_units.length} unités ` +
         `d'organisation, ${config.produits.length} produits, ${config.programmes.length} programmes, ` +
         `${config.produit_programme_niveau.length} liaisons produit/programme/niveau, ` +
-        `${config.categories.length} catégories${withdrawn}.`
+        `${config.categories.length} catégories${withdrawn}.${moved}`
     );
 }

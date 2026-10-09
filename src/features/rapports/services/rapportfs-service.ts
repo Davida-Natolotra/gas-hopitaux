@@ -118,10 +118,15 @@ export async function createRapportFs(input: { fsId: string; moisAnnee: string }
     return id;
 }
 
-// Recomputes rapportfs.status: true only if every produit applicable to the
-// current FS (my_produitprogrammeniveau) has a rapportfs_ligne with all of
-// MANDATORY_LIGNE_FIELDS filled in. Must be called whenever a line is
-// created or edited so the list page's "Statut" stays accurate.
+// Recomputes rapportfs.status: true only if every produit the report shows
+// has a rapportfs_ligne with all of MANDATORY_LIGNE_FIELDS filled in. Must be
+// called whenever a line is created or edited so the list page's "Statut"
+// stays accurate.
+//
+// The produits it shows are getProgrammeSections's: those still active in
+// my_produitprogrammeniveau, and withdrawn ones only where the report already
+// has a line. A withdrawn row it never captured is not owed — counting it left
+// every report "Incomplet" as soon as a configuration withdrew anything.
 export async function refreshRapportFsStatus(rapportfsId: string): Promise<boolean> {
     const db = await getDb();
     const mandatoryColumns = MANDATORY_LIGNE_FIELDS.map((field) => `l.${field}`).join(", ");
@@ -129,7 +134,9 @@ export async function refreshRapportFsStatus(rapportfsId: string): Promise<boole
         `SELECT l.id AS ligne_id, ${mandatoryColumns}
          FROM my_produitprogrammeniveau mppn
                   LEFT JOIN rapportfs_ligne l
-                            ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = $1`,
+                            ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = $1
+         WHERE mppn.active = 1
+            OR l.id IS NOT NULL`,
         [rapportfsId],
     );
     const complete = rows.every(

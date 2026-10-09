@@ -85,6 +85,47 @@ export function verifyDatabase(db) {
         .filter(([id, niveau]) => expectedById.has(id) && expectedById.get(id) !== niveau)
         .map(([id, niveau]) => `${id} : « ${niveau} » au lieu de « ${expectedById.get(id)} »`));
 
+    // A report collects a produit once per programme: the server configures one row
+    // per produit × programme, whatever categories it is owed through. Two rows for
+    // the same produit — by id, or by name, as the server's merge of same-named
+    // copies decides it (configuration 0015) — would list it twice on every report.
+    check(
+        results,
+        "un seul produit par programme parmi les produits à rapporter",
+        all(`SELECT pr.name AS programme, p.name AS produit, COUNT(*) AS n
+             FROM my_produitprogrammeniveau m
+                      JOIN produit p ON p.id = m.produit_id
+                      JOIN programme pr ON pr.id = m.programme_id
+             WHERE m.active = 1
+             GROUP BY m.programme_id, lower(trim(p.name))
+             HAVING COUNT(*) > 1`)
+            .map((row) => `${row.programme} : ${row.produit} ×${row.n}`),
+    );
+
+    // The cascade only offers the members of GAS-Hôpitaux's categories
+    // (inAppRoster): an FS outside them is one the device could never have been set
+    // up for.
+    check(
+        results,
+        "la FS fait partie de la liste de GAS-Hôpitaux (Assignation)",
+        all(`SELECT 1
+             FROM app_category ac
+                      JOIN category_member cm ON cm.category_id = ac.category_id
+             WHERE ac.app = 'GAS-Hopitaux' AND cm.ou_id = ${fs}`).length > 0
+            ? []
+            : ["aucune catégorie de GAS-Hôpitaux ne compte la FS parmi ses membres"],
+    );
+
+    // Every row carries the unit this app reports it in (schema 6): new lines copy
+    // it, and the server reads their quantities in it.
+    check(
+        results,
+        "chaque liaison porte son unité de déclaration et son identifiant",
+        all(`SELECT id FROM produit_programme_niveau
+             WHERE report_unit IS NULL OR report_unit = '' OR report_unit_id IS NULL`)
+            .map((row) => row.id),
+    );
+
     // ── Reports ──────────────────────────────────────────────────────────────
     const rapports = all(
         `SELECT id, mois_annee, fs_id, status, config_version, edited_by, created, exported_date
@@ -114,9 +155,10 @@ export function verifyDatabase(db) {
 
     // ── Lines ────────────────────────────────────────────────────────────────
     const lignes = all(
-        `SELECT l.*, r.mois_annee
+        `SELECT l.*, r.mois_annee, ppn.report_unit, ppn.report_unit_id
          FROM rapportfs_ligne l
-                  JOIN rapportfs r ON r.id = l.rapportfs_id`,
+                  JOIN rapportfs r ON r.id = l.rapportfs_id
+                  JOIN produit_programme_niveau ppn ON ppn.id = l.produit_programme_niveau_id`,
     );
     const details = all("SELECT rapportfs_ligne_id, sdu, date_peremption FROM detail_sdu");
     const detailsByLigne = new Map();
@@ -127,6 +169,17 @@ export function verifyDatabase(db) {
     }
 
     const label = (ligne) => `${ligne.mois_annee} / ${ligne.produit_name || ligne.produit_programme_niveau_id}`;
+
+    // Both inserts — saveRapportFsLigne and the CMM pass — copy the row's unit
+    // onto the line, and the configuration does not change across the series.
+    check(
+        results,
+        "chaque ligne est déclarée dans l'unité de sa liaison",
+        lignes
+            .filter((ligne) => ligne.produit_unit !== ligne.report_unit || ligne.produit_unit_id !== ligne.report_unit_id)
+            .map((ligne) => `${label(ligne)} : ${ligne.produit_unit} (${ligne.produit_unit_id}) au lieu de ` +
+                `${ligne.report_unit} (${ligne.report_unit_id})`),
+    );
 
     check(
         results,
@@ -259,8 +312,8 @@ export function verifyDatabase(db) {
     check(results, "CMM/CMMA calculés sur les 3 mois précédents", cmmErrors);
 
     // ── Status ───────────────────────────────────────────────────────────────
-    // Same query as refreshRapportFsStatus: over every applicable produit,
-    // archived ones included.
+    // Same query as refreshRapportFsStatus: over the produits the report shows —
+    // still collected, or withdrawn with a line on this report.
     const statusErrors = [];
     for (const rapport of rapports) {
         const rows = all(
@@ -268,7 +321,9 @@ export function verifyDatabase(db) {
                     l.qte_perime_avarie_mois, l.qte_redepl_mois, l.nb_jour_rupture, l.sdu_fin_mois, l.cmm
              FROM my_produitprogrammeniveau mppn
                       LEFT JOIN rapportfs_ligne l
-                                ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = ?`,
+                                ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = ?
+             WHERE mppn.active = 1
+                OR l.id IS NOT NULL`,
             [rapport.id],
         );
         const complete = rows.every((row) => row.ligne_id !== null && isLigneComplete(row));

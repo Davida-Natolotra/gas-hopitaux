@@ -1,14 +1,18 @@
 // The reference data half of the mock dataset: the organisation-unit tree, the
 // groups, the categories (CSB, HOPITAUX, CTTR, CR, CDT, …), the programmes, the
-// produits and the produit/programme/niveau links that tie them together.
+// produits and their units, the produit/programme/niveau links that tie them
+// together, and the Assignation (`apps`: each field app's roster and units).
 //
 // None of it is written here. It is read from utgl-config-reference.json, a real
-// server export (schema 5, version 15) trimmed to the organisation units the app
+// server export (schema 6, version 17) trimmed to the organisation units the app
 // can actually read: listOrganisationUnits() queries levels 2-5 and the cascade
 // selects level 5, so the export's level-6 units were dropped along with their
-// group and category memberships. Everything else — 8 groups, 9 categories, 8
-// programmes, 214 produits and 215 produit_programme_niveau links (one per
-// produit and programme) — is verbatim, ids included.
+// group and category memberships. Everything else — 8 groups, 11 categories, 8
+// programmes, 206 produits (8 of them with two units), 207
+// produit_programme_niveau links (one per produit and programme, since the server
+// merged the same-named produit copies the old per-group configuration had left)
+// and the 4 apps — is verbatim, ids included. Regenerate it with trim-config.mjs
+// from a fresh utgl-web export (see the header of scripts/seed-mock-data.mjs).
 //
 // That matters because produit_programme_niveau is what decides which lines a
 // report has: an invented catalogue produces a report that cannot be compared
@@ -17,14 +21,15 @@
 // scripts/seed-mock-data.mjs).
 //
 // What this module still decides is only what a config file does not carry: which
-// FS this install is, who the user is, and which links to withdraw so the app's
-// tombstone handling has something to chew on.
+// FS this install is, who the user is, which links to withdraw so the app's
+// tombstone handling has something to chew on, and which rows GAS-Hopitaux reports
+// in a unit of its own so the Assignation's unit path has something to chew on too.
 
 import {readFileSync} from "node:fs";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {appliesTo, indexConfiguration, niveauLabel} from "./applicability.mjs";
+import {appliesTo, indexConfiguration, niveauLabel, reportedUnit} from "./applicability.mjs";
 import {makeUuidFactory} from "./random.mjs";
 import {monthKey} from "./months.mjs";
 
@@ -38,12 +43,13 @@ export const REFERENCE_CONFIG_PATH = join(
 // the FS belongs to, so those memberships are what decide the report's lines.
 const MY_FS_NAME = "CHRD2 Bongatsara";
 
-// The category whose members this build collects for. Kept in step with
-// CATEGORY_HOPITAUX in src/features/configuration/services/applicability.ts.
-export const ROSTER_CATEGORY = "HOPITAUX";
+// This app's code in the configuration's `apps` (src/features/configuration/
+// models/this-app.ts): its entry says which categories are its roster and which
+// unit it reports each row in.
+export const THIS_APP = "GAS-Hopitaux";
 
 // The configuration shape this seeder writes and the app accepts.
-export const CONFIG_SCHEMA = 5;
+export const CONFIG_SCHEMA = 6;
 
 const USER_PROFILE = {
     username: "RAKOTOARISOA Hanta",
@@ -60,6 +66,13 @@ const USER_PROFILE = {
 // choice survives a re-export.
 const ARCHIVED_PRODUIT_COUNT = 2;
 
+// How many of this FS's rows to report in a unit other than their produit's
+// reference unit. The export's Assignation names no unit for GAS-Hopitaux, so
+// every row would otherwise be reported in its reference unit and the
+// report_unit_id path would only ever carry the obvious id. Rows are picked among
+// those whose produit has a second unit, by id order, like the archived ones.
+const ASSIGNED_UNIT_COUNT = 2;
+
 export function readReferenceConfig(path = REFERENCE_CONFIG_PATH) {
     let config;
     try {
@@ -74,7 +87,7 @@ export function readReferenceConfig(path = REFERENCE_CONFIG_PATH) {
         );
     }
     for (const key of ["organisation_units", "organisation_unit_groups", "categories", "programmes", "produits",
-        "produit_programme_niveau"]) {
+        "produit_programme_niveau", "apps"]) {
         if (!Array.isArray(config[key]) || config[key].length === 0) {
             throw new Error(`Configuration de référence invalide : "${key}" manquante ou vide.`);
         }
@@ -103,6 +116,12 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
     const categories = config.categories;
     const ppn = config.produit_programme_niveau;
     const index = indexConfiguration(config);
+    // The roster is what the Assignation gives this app — not a category picked by
+    // name, which is only the app's fallback for a schema 5 file.
+    const ownApp = config.apps.find((app) => app.code === THIS_APP);
+    if (!ownApp) throw new Error(`Application ${THIS_APP} absente de "apps" dans la configuration.`);
+    const rosterCategories = ownApp.category_ids.map((id) => index.categoryById.get(id)).filter(Boolean);
+    if (rosterCategories.length === 0) throw new Error(`Aucune catégorie assignée à ${THIS_APP}.`);
 
     // ── The FS this device is ────────────────────────────────────────────────
     const matches = organisationUnits.filter((ou) => ou.name === MY_FS_NAME && ou.level === 5);
@@ -125,13 +144,12 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
         throw new Error(`Chaîne DRSP/SDSP/commune incomplète au-dessus de ${MY_FS_NAME}.`);
     }
 
-    const hopitaux = index.categoryNamed(ROSTER_CATEGORY);
-    if (!hopitaux) {
-        throw new Error(`Catégorie ${ROSTER_CATEGORY} absente de la configuration de référence.`);
-    }
-    if (!index.categoryMembers.get(hopitaux.id).has(myFs.id)) {
+    if (!rosterCategories.some((category) => index.categoryMembers.get(category.id).has(myFs.id))) {
         // Without this the cascade would not offer the FS in the first place.
-        throw new Error(`${MY_FS_NAME} n'appartient pas à la catégorie ${ROSTER_CATEGORY}.`);
+        throw new Error(
+            `${MY_FS_NAME} n'est membre d'aucune catégorie de ${THIS_APP} ` +
+            `(${rosterCategories.map((category) => category.name).join(", ")}) dans la configuration.`,
+        );
     }
 
     const myOrganisationUnit = {
@@ -145,16 +163,14 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
     // Same rule as refreshMyProduitProgrammeNiveau(): the links configured for a
     // category the saved FS is a member of, each labelled with the categories it
     // reaches the FS through.
-    const myPpn = ppn
-        .filter((row) => appliesTo(index, row, myFs.id))
-        .map((row) => ({...row, niveau: niveauLabel(index, row, [myFs.id])}));
-    if (myPpn.length === 0) {
+    const myPpnRows = ppn.filter((row) => appliesTo(index, row, myFs.id));
+    if (myPpnRows.length === 0) {
         throw new Error(`Aucune liaison produit/programme/niveau pour ${MY_FS_NAME}.`);
     }
 
     const produitById = new Map(produits.map((produit) => [produit.id, produit]));
     const programmeById = new Map(programmes.map((programme) => [programme.id, programme]));
-    for (const row of myPpn) {
+    for (const row of myPpnRows) {
         if (!produitById.has(row.produit_id)) throw new Error(`Produit inconnu : ${row.produit_id}`);
         if (!programmeById.has(row.programme_id)) throw new Error(`Programme inconnu : ${row.programme_id}`);
     }
@@ -165,10 +181,10 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
     // them (see migration 0007 and config-import-service.ts). Picked by id order
     // so the same produits are withdrawn on every run with the same export.
     const archivedProduitIds = new Set(
-        [...new Set(myPpn.map((row) => row.produit_id))].sort().slice(0, ARCHIVED_PRODUIT_COUNT),
+        [...new Set(myPpnRows.map((row) => row.produit_id))].sort().slice(0, ARCHIVED_PRODUIT_COUNT),
     );
     const archivedAt = `${monthKey(archiveMonth)}-28T08:00:00Z`;
-    const withdrawn = myPpn
+    const withdrawn = myPpnRows
         .filter((row) => archivedProduitIds.has(row.produit_id))
         .map((row) => ({type: "produit_programme_niveau", id: row.id, archived_at: archivedAt}));
     const archivedPpnIds = new Set(withdrawn.map((tombstone) => tombstone.id));
@@ -177,6 +193,33 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
     // a freshly installed device performs.
     const deactivated = [...(config.deactivated ?? []), ...withdrawn];
 
+    // ── The units this app reports in ────────────────────────────────────────
+    // The Assignation as exported, plus a unit of GAS-Hopitaux's own for a couple
+    // of this FS's still-collected rows whose produit has a second unit (see
+    // ASSIGNED_UNIT_COUNT). Every row then carries the unit the import would give
+    // it: the assigned one, else its produit's reference unit.
+    const assigned = new Map(ownApp.ppn_units.map((row) => [row.ppn_id, row.unit_id]));
+    const assignedHere = myPpnRows
+        .filter((row) => !archivedPpnIds.has(row.id) && !assigned.has(row.id))
+        .filter((row) => (produitById.get(row.produit_id).units ?? []).length > 1)
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .slice(0, ASSIGNED_UNIT_COUNT)
+        .map((row) => {
+            const produit = produitById.get(row.produit_id);
+            const other = produit.units.find((unit) => unit.name !== produit.unit);
+            return {ppn_id: row.id, unit_id: other.id};
+        });
+    for (const row of assignedHere) assigned.set(row.ppn_id, row.unit_id);
+    const apps = config.apps.map((app) => (app.code === THIS_APP
+        ? {...app, ppn_units: [...app.ppn_units, ...assignedHere].sort((a, b) => a.ppn_id.localeCompare(b.ppn_id))}
+        : app));
+    const withUnit = (row) => {
+        const unit = reportedUnit(produitById.get(row.produit_id), assigned.get(row.id));
+        return {...row, report_unit: unit.name, report_unit_id: unit.id};
+    };
+    const ppnWithUnits = ppn.map(withUnit);
+    const myPpn = myPpnRows.map((row) => ({...withUnit(row), niveau: niveauLabel(index, row, [myFs.id])}));
+
     return {
         configVersion: configVersion ?? config.version,
         referenceVersion: config.version,
@@ -184,9 +227,13 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
         groups,
         categories,
         categoryIndex: index,
+        apps,
+        // The categories THIS_APP serves, for the run summary.
+        rosterCategoryNames: rosterCategories.map((category) => category.name).sort(),
+        assignedPpnIds: new Set(assignedHere.map((row) => row.ppn_id)),
         programmes,
         produits,
-        ppn,
+        ppn: ppnWithUnits,
         myPpn,
         deactivated,
         archivedPpnIds,
@@ -214,7 +261,7 @@ export function buildCatalogue({seed, archiveMonth, configVersion, referenceConf
     };
 }
 
-/** The config file the server would publish for this catalogue (schema 5). */
+/** The config file the server would publish for this catalogue (schema 6). */
 export function toConfigFile(catalogue, publishedAt) {
     return {
         schema: CONFIG_SCHEMA,
@@ -240,6 +287,7 @@ export function toConfigFile(catalogue, publishedAt) {
             id: produit.id,
             name: produit.name,
             unit: produit.unit,
+            units: produit.units ?? [],
             code: produit.code,
             uuid_dhis2: produit.uuid_dhis2,
         })),
@@ -249,6 +297,12 @@ export function toConfigFile(catalogue, publishedAt) {
             programme_id: row.programme_id,
             category_ids: row.category_ids,
             order: row.order,
+        })),
+        apps: catalogue.apps.map((app) => ({
+            code: app.code,
+            name: app.name,
+            category_ids: app.category_ids,
+            ppn_units: app.ppn_units,
         })),
         deactivated: catalogue.deactivated,
     };

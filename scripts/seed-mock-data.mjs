@@ -5,8 +5,9 @@
 //
 // "Complete" means everything the app needs to be exercised end to end without
 // touching a server: the imported configuration (organisation units, groups,
-// categories, programmes, produits, produit/programme/niveau links, with a couple of
-// withdrawn entries kept as tombstones), the device's own choices (its FS, its
+// categories, programmes, produits, produit/programme/niveau links with the unit
+// this app reports each in, the apps' rosters, and a couple of withdrawn entries
+// kept as tombstones), the device's own choices (its FS, its
 // device id, the user profile), and several consecutive months of reports whose
 // figures actually agree with each other — opening stock carried from the month
 // before, CMM averaged over the three preceding months, MSD and the situation
@@ -16,9 +17,11 @@
 // scripts/mock-data/utgl-config-reference.json, a real server export trimmed to
 // the organisation units the app queries (see the header of
 // scripts/mock-data/catalogue.mjs). Only the reports on top of it are generated.
-// To refresh it, re-export from the server (configuration schema 5), drop the
-// level-6 organisation units and their group and category memberships, and
-// overwrite that file.
+// To refresh it, re-export from utgl-web (configuration schema 6) and trim it
+// over that file:
+//
+//   cd ../utgl-web/utglbackend && python export_config.py --output /tmp/utgl_config.json
+//   node scripts/mock-data/trim-config.mjs /tmp/utgl_config.json
 //
 // It writes a fresh SQLite file rather than editing the live one, and stamps
 // _sqlx_migrations exactly as tauri-plugin-sql's migrator would, so the app
@@ -239,20 +242,29 @@ function insertAll(db, catalogue, {rapports, lignes, detailSdu}, importedAt) {
     );
 
     // As importConfig() writes them: the legacy org_group_* columns carry the
-    // row's own id and its category names (see migration 0009_category_only).
+    // row's own id and its category names (see migration 0009_category_only), and
+    // report_unit / report_unit_id the unit this app reports the row in
+    // (migration 0010_produit_units).
     insert(
         `INSERT INTO produit_programme_niveau
-             (id, produit_id, programme_id, org_group_id, org_group_name, "order", active, archived_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, NULL)`,
+             (id, produit_id, programme_id, org_group_id, org_group_name, "order", report_unit, report_unit_id,
+              active, archived_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL)`,
         catalogue.ppn.map((row) => [
             row.id, row.produit_id, row.programme_id, row.id, categoryNames(catalogue.categoryIndex, row).join(", "),
-            row.order,
+            row.order, row.report_unit, row.report_unit_id,
         ]),
     );
 
     insert(
         "INSERT INTO produit_programme_niveau_category (ppn_id, category_id) VALUES (?, ?)",
         catalogue.ppn.flatMap((row) => row.category_ids.map((categoryId) => [row.id, categoryId])),
+    );
+
+    // Every app's roster, not only this one's — as importConfig() writes it.
+    insert(
+        "INSERT INTO app_category (app, category_id) VALUES (?, ?)",
+        catalogue.apps.flatMap((app) => app.category_ids.map((categoryId) => [app.code, categoryId])),
     );
 
     db.prepare(
@@ -313,13 +325,14 @@ function insertAll(db, catalogue, {rapports, lignes, detailSdu}, importedAt) {
         `INSERT INTO rapportfs_ligne
              (id, rapportfs_id, produit_programme_niveau_id, qte_dispo_deb_mois, qte_rec_mois, qte_dist_patient,
               qte_perime_avarie_mois, qte_redepl_mois, nb_jour_rupture, stock_theorique, sdu_fin_mois, ecart,
-              cmm, cmma, msd, situation, observation, produit_code, produit_name, produit_unit, programme_name)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              cmm, cmma, msd, situation, observation, produit_code, produit_name, produit_unit, produit_unit_id,
+              programme_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         lignes.map((l) => [
             l.id, l.rapportfs_id, l.produit_programme_niveau_id, l.qte_dispo_deb_mois, l.qte_rec_mois,
             l.qte_dist_patient, l.qte_perime_avarie_mois, l.qte_redepl_mois, l.nb_jour_rupture, l.stock_theorique,
             l.sdu_fin_mois, l.ecart, l.cmm, l.cmma, l.msd, l.situation, l.observation,
-            l.produit_code, l.produit_name, l.produit_unit, l.programme_name,
+            l.produit_code, l.produit_name, l.produit_unit, l.produit_unit_id, l.programme_name,
         ]),
     );
 
@@ -413,7 +426,15 @@ function summarise(db, log) {
     ).map((row) => row.name);
     const niveaux = all("SELECT DISTINCT org_group_name AS name FROM my_produitprogrammeniveau ORDER BY 1")
         .map((row) => row.name);
+    const roster = all(
+        `SELECT c.name
+         FROM app_category ac
+                  JOIN category c ON c.id = ac.category_id
+         WHERE ac.app = 'GAS-Hopitaux'
+         ORDER BY c.name`,
+    ).map((row) => row.name);
     log(`  Catégories    ${categories.join(", ") || "—"}`);
+    log(`  Liste GAS-Hôpitaux ${roster.join(", ") || "—"}`);
     log(`  Niveaux       ${niveaux.join(" | ")}`);
 
     const counts = all(`
@@ -425,6 +446,11 @@ function summarise(db, log) {
         UNION ALL SELECT 'liaisons produit/programme/niveau', COUNT(*) FROM produit_programme_niveau
         UNION ALL SELECT '  dont applicables à cette FS', COUNT(*) FROM my_produitprogrammeniveau
         UNION ALL SELECT '  dont retirées de la config', COUNT(*) FROM my_produitprogrammeniveau WHERE active = 0
+        UNION ALL SELECT '  dont dans une unité assignée', COUNT(*)
+                  FROM my_produitprogrammeniveau m
+                           JOIN produit_programme_niveau ppn ON ppn.id = m.id
+                           JOIN produit p ON p.id = ppn.produit_id
+                  WHERE ppn.report_unit <> p.unit
         UNION ALL SELECT 'rapports', COUNT(*) FROM rapportfs
         UNION ALL SELECT 'lignes de rapport', COUNT(*) FROM rapportfs_ligne
         UNION ALL SELECT 'détails SDU', COUNT(*) FROM detail_sdu
@@ -475,8 +501,8 @@ function main() {
     const anchor = options.anchor ? parseMonthKey(options.anchor) : previousCalendarMonth();
     const months = monthSeries(anchor, options.months);
     // Where the withdrawn produits stop being collected. By default that is the
-    // newest month, so every report still carries them and none comes out
-    // incomplete because of it; --archive-mid moves it back into the series.
+    // newest month, so every report still carries them; --archive-mid moves it
+    // back into the series, so the later reports are seen without them.
     const archiveMonth = options.archiveMid
         ? months[Math.floor((months.length - 1) / 2)]
         : months[months.length - 1];
@@ -548,12 +574,12 @@ function main() {
         log("");
         log(`Note       : ${catalogue.archivedPpnIds.size} liaison(s) produit/programme retirée(s) de la ` +
             `configuration au ${archivedKey}.`);
-        if (options.archiveMid) {
-            log("             Les mois suivants seront « Incomplet » : refreshRapportFsStatus compte tous les");
-            log("             produits de my_produitprogrammeniveau, archivés compris, alors que la page de");
-            log("             saisie ne les propose plus. C'est le comportement de l'application, reproduit tel");
-            log("             quel — sans --archive-mid, le retrait tombe sur le dernier mois et ne se voit pas.");
-        }
+    }
+
+    if (catalogue.assignedPpnIds.size > 0) {
+        log("");
+        log(`Note       : ${catalogue.assignedPpnIds.size} liaison(s) déclarée(s) dans une autre unité que celle ` +
+            "de référence du produit (Assignation GAS-Hopitaux ajoutée au jeu).");
     }
 
     if (failed > 0) {

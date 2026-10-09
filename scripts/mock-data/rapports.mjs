@@ -170,42 +170,9 @@ export function buildRapports({catalogue, seed, months, partialLast}) {
             // A produit withdrawn from the configuration stops being collected
             // the month after the withdrawal. It keeps its earlier lines — those
             // are what the archived-produit handling in the report view exists
-            // for — and picks up exactly one more: computeRollingCmm inserts a
-            // cmm-only placeholder on the first month after, since that month
-            // still has three reported predecessors. The month after that no
-            // longer does, so the trail stops there by itself.
-            if (archived && index > archiveIndex) {
-                if (index === archiveIndex + 1 && rolling) {
-                    const placeholder = {
-                        id: uuidFor(`ligne:${month.key}:${ppn.id}`),
-                        rapportfs_id: rapportId,
-                        produit_programme_niveau_id: ppn.id,
-                        qte_dispo_deb_mois: null,
-                        qte_rec_mois: null,
-                        qte_dist_patient: null,
-                        qte_perime_avarie_mois: null,
-                        qte_redepl_mois: null,
-                        nb_jour_rupture: null,
-                        stock_theorique: null,
-                        sdu_fin_mois: null,
-                        ecart: null,
-                        cmm: rolling.cmm,
-                        cmma: rolling.cmma,
-                        msd: 0,
-                        situation: "",
-                        observation: "",
-                        // Inserted by the CMM pass, which does not carry the
-                        // labels across — only saveRapportFsLigne does.
-                        produit_code: "",
-                        produit_name: "",
-                        produit_unit: "",
-                        programme_name: "",
-                    };
-                    lignes.push(placeholder);
-                    history.set(index, placeholder);
-                }
-                continue;
-            }
+            // for — and gets no more: computeRollingCmm writes a CMM only onto a
+            // row still collected, or onto a line the report already has.
+            if (archived && index > archiveIndex) continue;
 
             if (index === lastIndex && skippedInLastMonth.has(ppn.id)) continue;
 
@@ -308,7 +275,10 @@ export function buildRapports({catalogue, seed, months, partialLast}) {
                 // configuration says later.
                 produit_code: produit.code ?? "",
                 produit_name: produit.name,
-                produit_unit: produit.unit,
+                // The unit this app reports the row in (report_unit), with its
+                // server id: the server reads the quantities in it.
+                produit_unit: ppn.report_unit,
+                produit_unit_id: ppn.report_unit_id,
                 programme_name: programme.name,
             };
 
@@ -320,18 +290,17 @@ export function buildRapports({catalogue, seed, months, partialLast}) {
         }
     });
 
-    // status, by the rule refreshRapportFsStatus applies: every produit
-    // applicable to this FS must have a line with all the mandatory fields on
-    // it. Note that it counts every my_produitprogrammeniveau row, archived
-    // ones included — so a report for a month after a withdrawal cannot come
-    // out complete. That is the app's own behaviour, reproduced rather than
-    // corrected here; see the note the CLI prints when --archive-mid is used.
+    // status, by the rule refreshRapportFsStatus applies: every produit the
+    // report shows — those still collected, and withdrawn ones only where it
+    // already has a line — must have a line with all the mandatory fields on it.
     for (const rapport of rapports) {
         const linesById = new Map(
             lignes.filter((ligne) => ligne.rapportfs_id === rapport.id)
                 .map((ligne) => [ligne.produit_programme_niveau_id, ligne]),
         );
-        rapport.status = catalogue.myPpn.every((ppn) => isLigneComplete(linesById.get(ppn.id))) ? 1 : 0;
+        rapport.status = catalogue.myPpn
+            .filter((ppn) => !catalogue.archivedPpnIds.has(ppn.id) || linesById.has(ppn.id))
+            .every((ppn) => isLigneComplete(linesById.get(ppn.id))) ? 1 : 0;
     }
 
     return {rapports, lignes, detailSdu};

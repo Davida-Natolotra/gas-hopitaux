@@ -76,6 +76,11 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
 
         // A line this creates is labelled like one saveRapportFsLigne creates — its
         // unit above all: the server reads the line's quantities in it.
+        //
+        // Only onto a row still collected, or a line the report already has: a line
+        // on a withdrawn row is what keeps it on the report, "Retiré", beside the
+        // row that replaced it — the same produit twice, and a report that can no
+        // longer be complete.
         const result = await db.execute(
             `INSERT INTO rapportfs_ligne (id, rapportfs_id, produit_programme_niveau_id, cmm, cmma,
                                           produit_code, produit_name, produit_unit, produit_unit_id, programme_name)
@@ -84,6 +89,11 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
                       JOIN produit p ON p.id = ppn.produit_id
                       JOIN programme pr ON pr.id = ppn.programme_id
              WHERE ppn.id = $3
+               AND (ppn.active = 1
+                 OR EXISTS (SELECT 1
+                            FROM rapportfs_ligne l
+                            WHERE l.rapportfs_id = $2
+                              AND l.produit_programme_niveau_id = ppn.id))
              ON CONFLICT(rapportfs_id, produit_programme_niveau_id) DO UPDATE SET
                  cmm  = excluded.cmm,
                  cmma = excluded.cmma`,

@@ -8,7 +8,7 @@
 // applicability.ts); verify.mjs restates it in SQL against the generated database,
 // so the two have to agree for a seed to pass.
 
-/** Indexes a schema-5 configuration file for the rule below. */
+/** Indexes a configuration file (schema 5 or 6) for the rule below. */
 export function indexConfiguration(config) {
     const categoryById = new Map(config.categories.map((category) => [category.id, category]));
     const categoryMembers = new Map(config.categories.map((category) => [category.id, new Set(category.organisation_units)]));
@@ -38,4 +38,17 @@ export function niveauLabel(index, ppn, ouIds = null) {
         .filter(Boolean)
         .sort()
         .join(", ");
+}
+
+/**
+ * The unit an app reports a row in, as importConfig() resolves it
+ * (config-import-service.ts, reportedUnit): the unit the Assignation names for the
+ * row, else the produit's reference unit — by name among its units, which gives its
+ * id. A produit without units (schema 5) gives the reference unit's name and no id.
+ */
+export function reportedUnit(produit, unitId) {
+    const units = produit.units ?? [];
+    const unit = units.find((candidate) => candidate.id === unitId) ??
+        units.find((candidate) => candidate.name === produit.unit);
+    return unit ? {id: unit.id, name: unit.name} : {id: null, name: produit.unit};
 }
