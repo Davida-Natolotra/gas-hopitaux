@@ -4,7 +4,7 @@ import {writeFile} from "@tauri-apps/plugin-fs";
 import {getDb} from "../../../services/db.ts";
 import {stampReportWithConfigVersion} from "../../configuration/services/config-version-service.ts";
 import {markRapportFsExported, setRapportFsExportedDate} from "./rapportfs-service.ts";
-import {getMyOrganisationUnit} from "../../organisation-units/organisation-units-service.ts";
+import {niveauLabel, ppnOwedBy} from "../../configuration/services/applicability.ts";
 import {parseMoisAnnee} from "../../../utils/mois-annee.ts";
 
 const UTGLFS_FILTERS = [{name: "Export UTGL FS", extensions: ["utglhp"]}];
@@ -126,19 +126,84 @@ interface UtglfsExportPayload {
     rapportfs_ligne: (RapportfsLigneRow & {detail_sdu: DetailSduRow[]})[];
 }
 
+interface ReportOrganisationUnit {
+    drsp_id: string | null;
+    sdsp_id: string | null;
+    sdsp_name: string | null;
+    commune_id: string | null;
+    fs_id: string;
+    fs_name: string;
+}
+
+/**
+ * The report's own facility and what it sits under — DRSP (level 2), SDSP (3) and
+ * commune (4) — read up the organisation tree from rapportfs.fs_id.
+ *
+ * Not my_organisation_unit: that is whichever facility the device is set to now, and
+ * a device moved to another hospital still holds the reports of the first. utgl-web
+ * files a report under the district this row names, checks it against the region and
+ * the hospital tab it is imported from, and refuses a file naming two facilities.
+ */
+async function getReportOrganisationUnit(rapportfsId: string): Promise<ReportOrganisationUnit> {
+    const db = await getDb();
+    const [row] = await db.select<(ReportOrganisationUnit & { fs_level: number | null })[]>(
+        `WITH RECURSIVE chain (id, name, level, parent_id) AS (
+             SELECT ou.id, ou.name, ou.level, ou.parent_id
+             FROM rapportfs r
+                      JOIN organisation_units ou ON ou.id = r.fs_id
+             WHERE r.id = $1
+             UNION ALL
+             SELECT ou.id, ou.name, ou.level, ou.parent_id
+             FROM organisation_units ou
+                      JOIN chain ON ou.id = chain.parent_id
+         )
+         SELECT r.fs_id                                              AS fs_id,
+                (SELECT name FROM chain WHERE id = r.fs_id)          AS fs_name,
+                (SELECT level FROM chain WHERE id = r.fs_id)         AS fs_level,
+                (SELECT id FROM chain WHERE level = 4 AND id <> r.fs_id) AS commune_id,
+                (SELECT id FROM chain WHERE level = 3)               AS sdsp_id,
+                (SELECT name FROM chain WHERE level = 3)             AS sdsp_name,
+                (SELECT id FROM chain WHERE level = 2)               AS drsp_id
+         FROM rapportfs r
+         WHERE r.id = $1`,
+        [rapportfsId],
+    );
+    if (!row || row.fs_level === null) {
+        throw new Error("La formation sanitaire de ce rapport est absente de la configuration installée.");
+    }
+    if (!row.sdsp_id || !row.drsp_id) {
+        throw new Error(`District ou région introuvable au-dessus de « ${row.fs_name} » dans la configuration installée.`);
+    }
+    return row;
+}
+
 // Raw table rows only (no joins/derived fields) — the export is meant to be
 // a faithful snapshot of these tables for the companion utgl server, not the
 // enriched view models the rest of the UI uses.
-async function buildExportPayload(rapportfsId: string): Promise<UtglfsExportPayload> {
+//
+// Everything is the report's own: its facility (see getReportOrganisationUnit), the
+// produits that facility owes, and only its lines on those. A line on a produit the
+// facility does not owe — say an LRR produit on a hospital that is not an LRR, left
+// behind when the device was moved between hospitals — is not part of its report, and
+// sending it would have the server count a produit the facility never had to report.
+async function buildExportPayload(rapportfsId: string, unit: ReportOrganisationUnit): Promise<UtglfsExportPayload> {
     const db = await getDb();
 
     const my_produitprogrammeniveau = await db.select<MyProduitProgrammeNiveauRow[]>(
-        `SELECT id, produit_id, programme_id, org_group_id, org_group_name, "order"
-         FROM my_produitprogrammeniveau`,
+        `SELECT ppn.id, ppn.produit_id, ppn.programme_id, ppn.org_group_id,
+                ${niveauLabel("ppn", "$1")} AS org_group_name, ppn."order"
+         FROM produit_programme_niveau ppn
+         WHERE ${ppnOwedBy("ppn", "$1")}
+           AND ppn.active = 1`,
+        [unit.fs_id],
     );
-    const my_organisation_unit = await db.select<MyOrganisationUnitRow[]>(
-        `SELECT id, drsp_id, sdsp_id, commune_id, fs_id FROM my_organisation_unit`,
-    );
+    const my_organisation_unit: MyOrganisationUnitRow[] = [{
+        id: 1,
+        drsp_id: unit.drsp_id!,
+        sdsp_id: unit.sdsp_id!,
+        commune_id: unit.commune_id,
+        fs_id: unit.fs_id,
+    }];
     const user_fs = await db.select<UserFsRow[]>(
         `SELECT id, username, poste, phone, device_id FROM user_fs`,
     );
@@ -154,9 +219,13 @@ async function buildExportPayload(rapportfsId: string): Promise<UtglfsExportPayl
                 qte_dist_patient, qte_perime_avarie_mois, qte_redepl_mois, nb_jour_rupture,
                 stock_theorique, sdu_fin_mois, ecart, cmm, cmma, msd, situation, observation,
                 produit_code, produit_name, produit_unit, produit_unit_id, programme_name
-         FROM rapportfs_ligne
-         WHERE rapportfs_id = $1`,
-        [rapportfsId],
+         FROM rapportfs_ligne l
+         WHERE l.rapportfs_id = $1
+           AND EXISTS (SELECT 1
+                       FROM produit_programme_niveau ppn
+                       WHERE ppn.id = l.produit_programme_niveau_id
+                         AND ${ppnOwedBy("ppn", "$2")})`,
+        [rapportfsId, unit.fs_id],
     );
     const rapportfs_ligne: (RapportfsLigneRow & {detail_sdu: DetailSduRow[]})[] = [];
     for (const ligne of ligneRows) {
@@ -192,12 +261,9 @@ export async function exportRapportFsToUtglfs(rapportfsId: string): Promise<stri
         "SELECT mois_annee, exported_date FROM rapportfs WHERE id = $1",
         [rapportfsId],
     );
-    const myOrganisationUnit = await getMyOrganisationUnit();
-    const fileName = buildExportFileName(
-        rapport?.mois_annee,
-        myOrganisationUnit?.sdsp.name,
-        myOrganisationUnit?.fs.name,
-    );
+    // Named, and filed on the server, after the report's own facility.
+    const unit = await getReportOrganisationUnit(rapportfsId);
+    const fileName = buildExportFileName(rapport?.mois_annee, unit.sdsp_name, unit.fs_name);
     const dest = await save({
         title: "Exporter le rapport",
         defaultPath: `${fileName}.utglhp`,
@@ -218,7 +284,7 @@ export async function exportRapportFsToUtglfs(rapportfsId: string): Promise<stri
     // a cancelled export returned above without stamping anything.
     await markRapportFsExported(rapportfsId);
     try {
-        const payload = await buildExportPayload(rapportfsId);
+        const payload = await buildExportPayload(rapportfsId, unit);
         const base64 = await invoke<string>("export_utglfs", {payload});
         await writeFile(dest, base64ToBytes(base64));
     } catch (err) {

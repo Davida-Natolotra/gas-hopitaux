@@ -3,6 +3,7 @@ import {generateUuid} from "../../../services/id-service.ts";
 import type {RapportHopitaux} from "../model/rapport-model.ts";
 import {refreshRapportFsStatus} from "./rapportfs-service.ts";
 import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
+import {ppnOwedBy} from "../../configuration/services/applicability.ts";
 
 // CMM (Consommation Moyenne Mensuelle) requires 4 consecutive months of
 // history (same fs_id): once a rapportfs's mois_annee is the 4th in such a
@@ -77,10 +78,12 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
         // A line this creates is labelled like one saveRapportFsLigne creates — its
         // unit above all: the server reads the line's quantities in it.
         //
-        // Only onto a row still collected, or a line the report already has: a line
-        // on a withdrawn row is what keeps it on the report, "Retiré", beside the
-        // row that replaced it — the same produit twice, and a report that can no
-        // longer be complete.
+        // Only onto a row the report's own facility owes and still collects, or a
+        // line the report already has: a line on a withdrawn row is what keeps it on
+        // the report, "Retiré", beside the row that replaced it — the same produit
+        // twice — and one on a row its facility does not owe (an LRR produit on a
+        // hospital that is not an LRR) puts a produit on the report that is not its
+        // to report.
         const result = await db.execute(
             `INSERT INTO rapportfs_ligne (id, rapportfs_id, produit_programme_niveau_id, cmm, cmma,
                                           produit_code, produit_name, produit_unit, produit_unit_id, programme_name)
@@ -89,7 +92,8 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
                       JOIN produit p ON p.id = ppn.produit_id
                       JOIN programme pr ON pr.id = ppn.programme_id
              WHERE ppn.id = $3
-               AND (ppn.active = 1
+               AND ((ppn.active = 1
+                     AND ${ppnOwedBy("ppn", "(SELECT r.fs_id FROM rapportfs r WHERE r.id = $2)")})
                  OR EXISTS (SELECT 1
                             FROM rapportfs_ligne l
                             WHERE l.rapportfs_id = $2

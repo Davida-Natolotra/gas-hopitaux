@@ -3,6 +3,7 @@ import {generateUuid} from "../../../services/id-service.ts";
 import {formatMoisAnnee} from "../../../utils/date-format.ts";
 import type {RapportHopitaux} from "../model/rapport-model.ts";
 import {MANDATORY_LIGNE_FIELDS} from "../model/rapport-completeness.ts";
+import {ppnOwedBy} from "../../configuration/services/applicability.ts";
 
 interface RapportfsRow {
     id: string;
@@ -123,20 +124,21 @@ export async function createRapportFs(input: { fsId: string; moisAnnee: string }
 // called whenever a line is created or edited so the list page's "Statut"
 // stays accurate.
 //
-// The produits it shows are getProgrammeSections's: those still active in
-// my_produitprogrammeniveau, and withdrawn ones only where the report already
-// has a line. A withdrawn row it never captured is not owed — counting it left
+// The produits it shows are getProgrammeSections's: those the report's own
+// facility owes (its categories), still active, or withdrawn where the report
+// already has a line. A withdrawn row it never captured is not owed — counting it left
 // every report "Incomplet" as soon as a configuration withdrew anything.
 export async function refreshRapportFsStatus(rapportfsId: string): Promise<boolean> {
     const db = await getDb();
     const mandatoryColumns = MANDATORY_LIGNE_FIELDS.map((field) => `l.${field}`).join(", ");
     const rows = await db.select<Record<string, unknown>[]>(
         `SELECT l.id AS ligne_id, ${mandatoryColumns}
-         FROM my_produitprogrammeniveau mppn
+         FROM rapportfs r
+                  JOIN produit_programme_niveau ppn ON ${ppnOwedBy("ppn", "r.fs_id")}
                   LEFT JOIN rapportfs_ligne l
-                            ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = $1
-         WHERE mppn.active = 1
-            OR l.id IS NOT NULL`,
+                            ON l.produit_programme_niveau_id = ppn.id AND l.rapportfs_id = r.id
+         WHERE r.id = $1
+           AND (ppn.active = 1 OR l.id IS NOT NULL)`,
         [rapportfsId],
     );
     const complete = rows.every(

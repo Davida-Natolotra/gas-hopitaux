@@ -76,6 +76,7 @@ export default function ProduitsProgrammeTable() {
                         <TableRow>
                             <TableCell>Produit</TableCell>
                             <TableCell>Unité</TableCell>
+                            <TableCell>Niveau</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
@@ -83,6 +84,7 @@ export default function ProduitsProgrammeTable() {
                             <TableRow key={produit.ppnId}>
                                 <TableCell>{produit.produitName}</TableCell>
                                 <TableCell>{produit.unit}</TableCell>
+                                <TableCell>{produit.niveau || "—"}</TableCell>
                             </TableRow>
                         ))}
                     </TableBody>

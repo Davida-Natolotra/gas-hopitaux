@@ -2,6 +2,7 @@ import {getDb} from "../../../services/db.ts";
 import {generateUuid} from "../../../services/id-service.ts";
 import type {DetailSDU, RapportHopitauxLigne} from "../model/rapport-model.ts";
 import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
+import {ppnOwedBy} from "../../configuration/services/applicability.ts";
 
 export interface RapportViewRow {
     ppnId: string;
@@ -100,10 +101,11 @@ async function findPreviousConsecutiveRapportfsId(rapportfsId: string): Promise<
     return match?.id ?? null;
 }
 
-// Loops over my_produitprogrammeniveau (the current FS's applicable produits,
-// refreshed on config import / organisation-unit save) and left-joins this
-// report's own rapportfs_ligne rows, so a produit with no entry yet still
-// shows up as an "Incomplet" row. Also left-joins the previous consecutive
+// Loops over the produits the report's own facility owes (ppnOwedBy against
+// rapportfs.fs_id — its categories, never those of whichever facility the device
+// is set to now) and left-joins this report's own rapportfs_ligne rows, so a
+// produit with no entry yet still shows up as an "Incomplet" row. A line on a
+// produit that facility does not owe is not shown: it is not part of its report. Also left-joins the previous consecutive
 // month's rapportfs_ligne (if any) to carry over sdu_fin_mois as the
 // suggested qte_dispo_deb_mois for produits not yet reported this month.
 // Archived produits. A produit withdrawn from the configuration must stop being
@@ -128,12 +130,12 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
     const db = await getDb();
     const previousRapportfsId = await findPreviousConsecutiveRapportfsId(rapportfsId);
     const rows = await db.select<RapportViewQueryRow[]>(
-        `SELECT mppn.id                        AS ppn_id,
+        `SELECT ppn.id                         AS ppn_id,
                 COALESCE(NULLIF(l.produit_name, ''), p.name)    AS produit_name,
-                COALESCE(NULLIF(l.produit_unit, ''), fppn.report_unit, p.unit)    AS produit_unit,
+                COALESCE(NULLIF(l.produit_unit, ''), ppn.report_unit, p.unit)    AS produit_unit,
                 pr.id                          AS programme_id,
                 COALESCE(NULLIF(l.programme_name, ''), pr.name) AS programme_name,
-                mppn.active                    AS produit_actif,
+                ppn.active                     AS produit_actif,
                 l.id                           AS ligne_id,
                 l.qte_dispo_deb_mois,
                 l.qte_rec_mois,
@@ -150,18 +152,17 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
                 l.situation,
                 l.observation,
                 prev_l.sdu_fin_mois            AS prev_sdu_fin_mois
-         FROM my_produitprogrammeniveau mppn
-                  JOIN produit p ON p.id = mppn.produit_id
-                  -- The unit this app reports the row in: on the full row, which the import sets.
-                  LEFT JOIN produit_programme_niveau fppn ON fppn.id = mppn.id
-                  JOIN programme pr ON pr.id = mppn.programme_id
+         FROM rapportfs r
+                  JOIN produit_programme_niveau ppn ON ${ppnOwedBy("ppn", "r.fs_id")}
+                  JOIN produit p ON p.id = ppn.produit_id
+                  JOIN programme pr ON pr.id = ppn.programme_id
                   LEFT JOIN rapportfs_ligne l
-                            ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = $1
+                            ON l.produit_programme_niveau_id = ppn.id AND l.rapportfs_id = r.id
                   LEFT JOIN rapportfs_ligne prev_l
-                            ON prev_l.produit_programme_niveau_id = mppn.id AND prev_l.rapportfs_id = $2
-         WHERE mppn.active = 1
-            OR l.id IS NOT NULL
-         ORDER BY pr.name, (mppn."order" IS NULL), mppn."order", p.name`,
+                            ON prev_l.produit_programme_niveau_id = ppn.id AND prev_l.rapportfs_id = $2
+         WHERE r.id = $1
+           AND (ppn.active = 1 OR l.id IS NOT NULL)
+         ORDER BY pr.name, (ppn."order" IS NULL), ppn."order", p.name`,
         [rapportfsId, previousRapportfsId ?? ""],
     );
 

@@ -291,6 +291,24 @@ export async function importConfig(config: ConfigFile): Promise<string> {
     await db.execute("DELETE FROM category");
     await db.execute("DELETE FROM app_category");
 
+    // What the file does not list is no longer collected. The server publishes only
+    // the active produits, programmes and produit × programme rows, but tombstones
+    // only what it archived itself: the rows of an archived produit or programme, and
+    // the produits it merged away, are simply absent. Left active here, they went on
+    // being offered. So everything is marked withdrawn first, and the upserts below
+    // bring back exactly what the file carries; a row withdrawn earlier keeps the
+    // date it was withdrawn on.
+    const withdrawnAt = config.published_at ?? new Date().toISOString();
+    for (const table of ["produit", "programme", "produit_programme_niveau"]) {
+        await db.execute(
+            `UPDATE ${table}
+             SET active      = 0,
+                 archived_at = COALESCE(archived_at, $1)
+             WHERE active = 1`,
+            [withdrawnAt],
+        );
+    }
+
     // Sorted by level so every parent row is upserted before its children —
     // organisation_units.parent_id is a self-referencing foreign key.
     const sortedOrganisationUnits = [...config.organisation_units].sort((a, b) => a.level - b.level);

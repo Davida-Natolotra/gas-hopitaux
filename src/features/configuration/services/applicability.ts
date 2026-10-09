@@ -78,6 +78,21 @@ export function legacyPpnAppliesTo(ppn: string, ou: string): string {
 }
 
 /**
+ * Condition: the organisation unit `ou` owes the row — through one of its categories,
+ * or, for a row from before produits were configured by category, through its old
+ * group. Whether the row is still collected is a separate question (`active`): a
+ * withdrawn row is still owed by the units that captured it.
+ *
+ * What decides which produits a report has: always the report's own facility
+ * (rapportfs.fs_id), never whichever one the device is set to now. A report filled in
+ * for a hospital that is not an LRR must not list, count or export LRR produits
+ * because the device was later moved to one that is.
+ */
+export function ppnOwedBy(ppn: string, ou: string): string {
+    return `(${ppnAppliesTo(ppn, ou)} OR ${legacyPpnAppliesTo(ppn, ou)})`;
+}
+
+/**
  * Condition: the row is one a PhaGDis report covers — it is configured for one of
  * GAS-PhaGDis's categories (PhaGDis by default), and the district `sdsp` (a SQL
  * expression for its id) is a member of it. Same rule as the server's PhaGDis

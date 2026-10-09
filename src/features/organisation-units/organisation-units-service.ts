@@ -2,9 +2,8 @@ import {getDb} from "../../services/db.ts";
 import {
     APP_GAS_HOPITAUX,
     inAppRoster,
-    legacyPpnAppliesTo,
     niveauLabel,
-    ppnAppliesTo,
+    ppnOwedBy,
 } from "../configuration/services/applicability.ts";
 import type {MyOrganisationUnit, OrganisationUnit} from "./organisation-unit-model.ts";
 
@@ -132,8 +131,7 @@ export async function refreshMyProduitProgrammeNiveau(): Promise<void> {
                 ${niveauLabel("ppn", "SELECT fs_id FROM my_organisation_unit WHERE id = 1")},
                 ppn."order", ppn.active, ppn.archived_at
          FROM produit_programme_niveau ppn
-         WHERE ${ppnAppliesTo("ppn", "(SELECT fs_id FROM my_organisation_unit WHERE id = 1)")}
-            OR ${legacyPpnAppliesTo("ppn", "(SELECT fs_id FROM my_organisation_unit WHERE id = 1)")}`,
+         WHERE ${ppnOwedBy("ppn", "(SELECT fs_id FROM my_organisation_unit WHERE id = 1)")}`,
     );
 }
 
@@ -149,14 +147,18 @@ export interface ProduitSummary {
     ppnId: string;
     produitName: string;
     unit: string;
+    // The categories the saved hospital reports this produit through ("HOPITAUX",
+    // "CDT, LRR"): its row's niveau label.
+    niveau: string;
 }
 
 export interface ProgrammeProduits {
     programmeId: string;
     programmeName: string;
-    // Distinct niveaux of this programme's produits for the saved hospital: the
-    // categories it reports them through ("HOPITAUX", "CDT"). A hospital can
-    // belong to several categories.
+    // Every category the saved hospital reports this programme's produits through
+    // ("CDT", "CRPC", "LRR"), each once. A produit's niveau can name several, so
+    // the produits' labels themselves cannot simply be listed: "CDT, LRR" and
+    // "CDT, CRPC" would show CDT twice.
     niveaux: string[];
     produits: ProduitSummary[];
 }
@@ -203,11 +205,19 @@ export async function listMyProduitsByProgramme(): Promise<ProgrammeProduits[]> 
             sections.set(row.programme_id, section);
             niveauxByProgramme.set(row.programme_id, new Set());
         }
-        niveauxByProgramme.get(row.programme_id)!.add(row.org_group_name);
-        section.produits.push({ppnId: row.ppn_id, produitName: row.produit_name, unit: row.produit_unit});
+        // The label is niveauLabel()'s ", "-joined category names (applicability.ts).
+        for (const category of row.org_group_name.split(", ")) {
+            if (category) niveauxByProgramme.get(row.programme_id)!.add(category);
+        }
+        section.produits.push({
+            ppnId: row.ppn_id,
+            produitName: row.produit_name,
+            unit: row.produit_unit,
+            niveau: row.org_group_name,
+        });
     }
     for (const section of sections.values()) {
-        section.niveaux = Array.from(niveauxByProgramme.get(section.programmeId)!);
+        section.niveaux = Array.from(niveauxByProgramme.get(section.programmeId)!).sort();
     }
     return Array.from(sections.values());
 }
