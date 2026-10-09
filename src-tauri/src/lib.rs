@@ -72,6 +72,12 @@ pub fn run() {
             sql: include_str!("../migrations/0010_produit_units.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 11,
+            description: "rename_rapportfs_with_fs_name",
+            sql: include_str!("../migrations/0011_rename_rapportfs_with_fs_name.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

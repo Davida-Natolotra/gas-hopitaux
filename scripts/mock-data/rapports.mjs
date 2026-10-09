@@ -143,7 +143,7 @@ export function buildRapports({catalogue, seed, months, partialLast}) {
 
         rapports.push({
             id: rapportId,
-            name: `Rapport Hopitaux ${formatMoisAnnee(month)}`,
+            name: `Rapport ${catalogue.myFs.name} - ${formatMoisAnnee(month)}`,
             // A month's report is filled in early the month after it.
             created: isoAt(nextMonth, createdDay),
             // Everything but the two most recent months has already been sent.

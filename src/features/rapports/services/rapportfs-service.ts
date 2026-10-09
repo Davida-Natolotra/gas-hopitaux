@@ -105,10 +105,17 @@ export async function setRapportFsExportedDate(id: string, exportedDate: string 
     await db.execute("UPDATE rapportfs SET exported_date = $1 WHERE id = $2", [exportedDate, id]);
 }
 
+// Named after the hospital it is for — "Rapport <FS> - MM/YYYY" — so reports read
+// apart in the list and on the server, where every hospital's land side by side.
+// Migration 0011 renamed the reports created under the old generic name.
 export async function createRapportFs(input: { fsId: string; moisAnnee: string }): Promise<string> {
     const db = await getDb();
     const id = generateUuid();
-    const name = `Rapport Hopitaux ${formatMoisAnnee(input.moisAnnee)}`;
+    const [fs] = await db.select<{ name: string }[]>(
+        "SELECT name FROM organisation_units WHERE id = $1",
+        [input.fsId],
+    );
+    const name = `Rapport ${fs?.name ?? "Hopitaux"} - ${formatMoisAnnee(input.moisAnnee)}`;
     await db.execute(
         `INSERT INTO rapportfs (id, name, created, exported_date, status, mois_annee, fs_id, edited_by)
          VALUES ($1, $2, $3, NULL, 0, $4, $5, NULL)`,
