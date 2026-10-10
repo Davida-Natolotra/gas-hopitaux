@@ -14,10 +14,21 @@ fn main() {
     // imports at all. That covers what STATIC_VCRUNTIME was for (no VC++
     // redistributable needed) and then some.
     //
+    // Decided on the *target*, read from Cargo's CARGO_CFG_* variables, never
+    // with #[cfg(...)]: a build script is compiled for the machine running the
+    // build, so #[cfg(windows)] here only held for a build made on Windows. A
+    // Windows build cross-compiled from Linux (cargo-xwin) kept the variable,
+    // and with +crt-static excluding the dynamic UCRT and tauri-build excluding
+    // the static one, the link failed with no C runtime at all (undefined
+    // `strlen`, `floor`, `wcslen`, …).
+    //
     // Only affects this build script's own process, so tauri-build's
     // `env::var_os` lookup sees it as unset.
-    #[cfg(all(windows, target_env = "msvc"))]
-    std::env::remove_var("STATIC_VCRUNTIME");
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_os == "windows" && target_env == "msvc" {
+        std::env::remove_var("STATIC_VCRUNTIME");
+    }
 
     tauri_build::build()
 }
