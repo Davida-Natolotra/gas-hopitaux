@@ -313,8 +313,9 @@ export function verifyDatabase(db) {
 
     // ── Status ───────────────────────────────────────────────────────────────
     // Same rule as refreshRapportFsStatus (reportListsPpn): over the produits the
-    // report shows — still collected and not unchecked (ppn_exclusion), or otherwise
-    // where the report holds figures for them.
+    // report shows — still collected, not unchecked (ppn_exclusion) and already
+    // reported in the report's month (ppn_introduced), or otherwise where the report
+    // holds figures for them.
     const statusErrors = [];
     for (const rapport of rapports) {
         const rows = all(
@@ -323,12 +324,16 @@ export function verifyDatabase(db) {
              FROM my_produitprogrammeniveau mppn
                       LEFT JOIN rapportfs_ligne l
                                 ON l.produit_programme_niveau_id = mppn.id AND l.rapportfs_id = ?
+                      JOIN rapportfs r ON r.id = ?
              WHERE (mppn.active = 1
-                 AND NOT EXISTS (SELECT 1 FROM ppn_exclusion x WHERE x.ppn_id = mppn.id AND x.fs_id = ${fs}))
+                 AND NOT EXISTS (SELECT 1 FROM ppn_exclusion x WHERE x.ppn_id = mppn.id AND x.fs_id = ${fs})
+                 AND NOT EXISTS (SELECT 1 FROM ppn_introduced i
+                                 WHERE i.fs_id = ${fs} AND i.ppn_id = mppn.id AND i.introduced_at IS NOT NULL
+                                   AND substr(i.introduced_at, 1, 7) > substr(r.mois_annee, 1, 7)))
                 OR (l.id IS NOT NULL
                  AND COALESCE(l.qte_dispo_deb_mois, l.qte_rec_mois, l.qte_dist_patient, l.qte_perime_avarie_mois,
                               l.qte_redepl_mois, l.nb_jour_rupture, l.sdu_fin_mois) IS NOT NULL)`,
-            [rapport.id],
+            [rapport.id, rapport.id],
         );
         const complete = rows.every((row) => row.ligne_id !== null && isLigneComplete(row));
         if (Boolean(rapport.status) !== complete) {

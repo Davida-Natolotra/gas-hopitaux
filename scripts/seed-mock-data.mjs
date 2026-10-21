@@ -300,6 +300,12 @@ function insertAll(db, catalogue, {rapports, lignes, detailSdu}, importedAt) {
         ]),
     );
 
+    // Introduced "always": the seeded configuration is the hospital's first on
+    // this device, which recordIntroductions() notes with no date.
+    db.prepare(
+        "INSERT INTO ppn_introduced (fs_id, ppn_id, introduced_at) SELECT ?, id, NULL FROM my_produitprogrammeniveau",
+    ).run(catalogue.myOrganisationUnit.fs_id);
+
     // Withdrawn entries are marked, never deleted — same as applyTombstones().
     const markPpn = db.prepare(
         "UPDATE produit_programme_niveau SET active = 0, archived_at = ? WHERE id = ?",

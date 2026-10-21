@@ -135,6 +135,33 @@ export async function refreshMyProduitProgrammeNiveau(): Promise<void> {
          FROM produit_programme_niveau ppn
          WHERE ${ppnOwedBy("ppn", "(SELECT fs_id FROM my_organisation_unit WHERE id = 1)")}`,
     );
+    await recordIntroductions();
+}
+
+/**
+ * Notes the date each row first entered my_produitprogrammeniveau for the saved
+ * hospital, so a produit a later configuration adds is not owed by the months
+ * before it (see ppnCollectedIn in configuration/services/applicability.ts). A row
+ * already noted keeps its date.
+ *
+ * The hospital's first configuration on this device is "always" (NULL): it is
+ * what every report is filled in against, past months included.
+ */
+async function recordIntroductions(): Promise<void> {
+    const db = await getDb();
+    const [unit] = await db.select<{ fs_id: string }[]>("SELECT fs_id FROM my_organisation_unit WHERE id = 1");
+    if (!unit) return;
+    const known = await db.select<unknown[]>("SELECT 1 FROM ppn_introduced WHERE fs_id = $1 LIMIT 1", [unit.fs_id]);
+    const now = new Date();
+    const today = known.length > 0
+        ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+        : null;
+    await db.execute(
+        `INSERT OR IGNORE INTO ppn_introduced (fs_id, ppn_id, introduced_at)
+         SELECT $1, id, $2
+         FROM my_produitprogrammeniveau`,
+        [unit.fs_id, today],
+    );
 }
 
 // Used by the startup routing check: whether the saved FS actually has any

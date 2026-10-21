@@ -4,7 +4,14 @@ import {writeFile} from "@tauri-apps/plugin-fs";
 import {getDb} from "../../../services/db.ts";
 import {stampReportWithConfigVersion} from "../../configuration/services/config-version-service.ts";
 import {markRapportFsExported, setRapportFsExportedDate} from "./rapportfs-service.ts";
-import {niveauLabel, ppnOwedBy, ppnSelectedBy, reportListsPpn} from "../../configuration/services/applicability.ts";
+import {
+    niveauLabel,
+    ppnCollectedIn,
+    ppnOwedBy,
+    ppnSelectedBy,
+    rapportMois,
+    reportListsPpn,
+} from "../../configuration/services/applicability.ts";
 import {parseMoisAnnee} from "../../../utils/mois-annee.ts";
 
 const UTGLFS_FILTERS = [{name: "Export UTGL FS", extensions: ["utglhp"]}];
@@ -196,8 +203,9 @@ async function buildExportPayload(rapportfsId: string, unit: ReportOrganisationU
          FROM produit_programme_niveau ppn
          WHERE ${ppnOwedBy("ppn", "$1")}
            AND ppn.active = 1
-           AND ${ppnSelectedBy("ppn", "$1")}`,
-        [unit.fs_id],
+           AND ${ppnSelectedBy("ppn", "$1")}
+           AND ${ppnCollectedIn("ppn", "$1", rapportMois("$2"))}`,
+        [unit.fs_id, rapportfsId],
     );
     const my_organisation_unit: MyOrganisationUnitRow[] = [{
         id: 1,
@@ -227,7 +235,7 @@ async function buildExportPayload(rapportfsId: string, unit: ReportOrganisationU
                        FROM produit_programme_niveau ppn
                        WHERE ppn.id = l.produit_programme_niveau_id
                          AND ${ppnOwedBy("ppn", "$2")}
-                         AND ${reportListsPpn("ppn", "$2", "l")})`,
+                         AND ${reportListsPpn("ppn", "$2", "l", rapportMois("$1"))})`,
         [rapportfsId, unit.fs_id],
     );
     const rapportfs_ligne: (RapportfsLigneRow & {detail_sdu: DetailSduRow[]})[] = [];

@@ -111,16 +111,44 @@ export function ligneCaptured(ligne: string): string {
 }
 
 /**
- * Condition: a report of facility `ou` lists the row `ppn` (which `ou` owes, see
- * ppnOwedBy), given its line `ligne` on that report — what the report screen shows,
- * what its completeness counts and what its export sends:
- *
- *   * a row still collected that the facility reports (not unchecked);
- *   * any other row — withdrawn, or unchecked — only where the report already holds
- *     figures for it: those were entered and are kept, never dropped.
+ * Condition: the facility `ou` already reported the row in month `mois` (a SQL
+ * expression for "YYYY-MM"): the row was not added to its produits by a later
+ * configuration (ppn_introduced, see migration 0013). A row with no date, or no
+ * entry at all, has always been reported.
  */
-export function reportListsPpn(ppn: string, ou: string, ligne: string): string {
-    return `((${ppn}.active = 1 AND ${ppnSelectedBy(ppn, ou)})
+export function ppnCollectedIn(ppn: string, ou: string, mois: string): string {
+    return `NOT EXISTS (SELECT 1
+                       FROM ppn_introduced i
+                       WHERE i.fs_id = ${ou}
+                         AND i.ppn_id = ${ppn}.id
+                         AND i.introduced_at IS NOT NULL
+                         AND substr(i.introduced_at, 1, 7) > ${mois})`;
+}
+
+/**
+ * The month of report `rapportfsId` (a SQL expression for its id) as "YYYY-MM".
+ * mois_annee is stored as either "YYYY-MM" or "YYYY-MM-DD", so it is cut to its
+ * first 7 characters before any comparison.
+ */
+export function rapportMois(rapportfsId: string): string {
+    return `(SELECT substr(mois_annee, 1, 7) FROM rapportfs WHERE id = ${rapportfsId})`;
+}
+
+/**
+ * Condition: a report of facility `ou` for month `mois` (a SQL expression for
+ * "YYYY-MM", see rapportMois) lists the row `ppn` (which `ou` owes, see ppnOwedBy),
+ * given its line `ligne` on that report — what the report screen shows, what its
+ * completeness counts and what its export sends:
+ *
+ *   * a row still collected that the facility reports (not unchecked), and already
+ *     reported in that month (ppnCollectedIn) — a produit a later configuration adds
+ *     is not owed by the months before it, so importing one never turns a finished
+ *     past report "Incomplet";
+ *   * any other row — withdrawn, unchecked, or added since — only where the report
+ *     already holds figures for it: those were entered and are kept, never dropped.
+ */
+export function reportListsPpn(ppn: string, ou: string, ligne: string, mois: string): string {
+    return `((${ppn}.active = 1 AND ${ppnSelectedBy(ppn, ou)} AND ${ppnCollectedIn(ppn, ou, mois)})
             OR (${ligne}.id IS NOT NULL AND ${ligneCaptured(ligne)}))`;
 }
 

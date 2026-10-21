@@ -3,7 +3,7 @@ import {generateUuid} from "../../../services/id-service.ts";
 import type {RapportHopitaux} from "../model/rapport-model.ts";
 import {refreshRapportFsStatus} from "./rapportfs-service.ts";
 import {monthKey, parseMoisAnnee, shiftMonths} from "../../../utils/mois-annee.ts";
-import {ppnOwedBy, ppnSelectedBy} from "../../configuration/services/applicability.ts";
+import {ppnCollectedIn, ppnOwedBy, ppnSelectedBy, rapportMois} from "../../configuration/services/applicability.ts";
 
 // CMM (Consommation Moyenne Mensuelle) requires 4 consecutive months of
 // history (same fs_id): once a rapportfs's mois_annee is the 4th in such a
@@ -94,14 +94,19 @@ async function applyCmmToTarget(firstId: string, secondId: string, thirdId: stri
              WHERE ppn.id = $3
                AND ((ppn.active = 1
                      AND ${ppnOwedBy("ppn", "(SELECT r.fs_id FROM rapportfs r WHERE r.id = $2)")}
-                     AND ${ppnSelectedBy("ppn", "(SELECT r.fs_id FROM rapportfs r WHERE r.id = $2)")})
+                     AND ${ppnSelectedBy("ppn", "(SELECT r.fs_id FROM rapportfs r WHERE r.id = $2)")}
+                     AND ${ppnCollectedIn("ppn", "(SELECT r.fs_id FROM rapportfs r WHERE r.id = $2)", rapportMois("$2"))})
                  OR EXISTS (SELECT 1
                             FROM rapportfs_ligne l
                             WHERE l.rapportfs_id = $2
                               AND l.produit_programme_niveau_id = ppn.id))
              ON CONFLICT(rapportfs_id, produit_programme_niveau_id) DO UPDATE SET
                  cmm  = excluded.cmm,
-                 cmma = excluded.cmma`,
+                 cmma = excluded.cmma
+             -- Skipped when CMM/CMMA are already right, so rowsAffected says
+             -- whether anything changed: this runs on every list-page load.
+             WHERE rapportfs_ligne.cmm IS NOT excluded.cmm
+                OR rapportfs_ligne.cmma IS NOT excluded.cmma`,
             [generateUuid(), targetId, produitProgrammeNiveauId, cmm, cmma],
         );
         if (result.rowsAffected > 0) updated = true;

@@ -145,7 +145,7 @@ export async function refreshRapportFsStatus(rapportfsId: string): Promise<boole
                   LEFT JOIN rapportfs_ligne l
                             ON l.produit_programme_niveau_id = ppn.id AND l.rapportfs_id = r.id
          WHERE r.id = $1
-           AND ${reportListsPpn("ppn", "r.fs_id", "l")}`,
+           AND ${reportListsPpn("ppn", "r.fs_id", "l", "substr(r.mois_annee, 1, 7)")}`,
         [rapportfsId],
     );
     const complete = rows.every(

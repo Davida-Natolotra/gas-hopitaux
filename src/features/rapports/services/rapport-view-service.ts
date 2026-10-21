@@ -125,6 +125,10 @@ async function findPreviousConsecutiveRapportfsId(rapportfsId: string): Promise<
 // capture it keep their line untouched and simply carry the "Retiré" mark, so
 // `archived` here is the plain configuration flag.
 //
+// Additions work the other way: a produit a later configuration adds is offered
+// from the month it arrived, not on reports for the months before it — those
+// were filled in without it, and showing it there would turn them "Incomplet".
+//
 // The labels come from the line where there is one, and from the configuration
 // only for rows not yet filled in. Reading them from the join instead would let
 // a later rename silently rewrite what a finished report appears to say.
@@ -163,7 +167,7 @@ export async function getProgrammeSections(rapportfsId: string): Promise<Program
                   LEFT JOIN rapportfs_ligne prev_l
                             ON prev_l.produit_programme_niveau_id = ppn.id AND prev_l.rapportfs_id = $2
          WHERE r.id = $1
-           AND ${reportListsPpn("ppn", "r.fs_id", "l")}
+           AND ${reportListsPpn("ppn", "r.fs_id", "l", "substr(r.mois_annee, 1, 7)")}
          ORDER BY pr.name, (ppn."order" IS NULL), ppn."order", p.name`,
         [rapportfsId, previousRapportfsId ?? ""],
     );

@@ -84,6 +84,12 @@ pub fn run() {
             sql: include_str!("../migrations/0012_ppn_exclusion.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 13,
+            description: "ppn_introduced",
+            sql: include_str!("../migrations/0013_ppn_introduced.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
